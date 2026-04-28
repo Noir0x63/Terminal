@@ -25,15 +25,66 @@ async function importKeys(pem) {
     masterSignKey = await crypto.subtle.importKey('pkcs8', binary.buffer, { name: 'RSA-PSS', hash: 'SHA-256' }, false, ['sign']);
 }
 
+function hexToBuffer(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    return bytes;
+}
+
+// Decrypt master_private.enc using passphrase + PBKDF2 + AES-256-GCM (WebCrypto)
+async function decryptEncryptedKey(envelopeJson, passphrase) {
+    const envelope = JSON.parse(envelopeJson);
+    if (envelope.kdf !== 'pbkdf2') throw new Error('Unsupported KDF: ' + envelope.kdf);
+
+    const enc = new TextEncoder();
+    const salt = hexToBuffer(envelope.salt);
+    const iv = hexToBuffer(envelope.iv);
+    const authTag = hexToBuffer(envelope.authTag);
+    const ciphertext = hexToBuffer(envelope.ciphertext);
+
+    // Reconstruct the ciphertext+authTag buffer (WebCrypto expects them concatenated)
+    const encryptedWithTag = new Uint8Array(ciphertext.length + authTag.length);
+    encryptedWithTag.set(ciphertext, 0);
+    encryptedWithTag.set(authTag, ciphertext.length);
+
+    // Derive decryption key via PBKDF2
+    const baseKey = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+    const aesKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: salt, iterations: envelope.kdfParams.iterations, hash: envelope.kdfParams.hash },
+        baseKey,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+    );
+
+    // Decrypt
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, aesKey, encryptedWithTag);
+    return new TextDecoder().decode(decrypted);
+}
+
+let pendingEncFile = null;
+
 document.getElementById('file-input').onchange = async (e) => {
     const f = e.target.files[0];
     if (!f) return;
     const text = await f.text();
-    try {
-        await importKeys(text);
-        document.getElementById('upload-status').textContent = 'KEY READY';
+
+    // Detect if it's an encrypted .enc file or a legacy plaintext .pem
+    if (f.name.endsWith('.enc') || text.trim().startsWith('{')) {
+        pendingEncFile = text;
+        document.getElementById('upload-status').textContent = 'ENCRYPTED KEY LOADED — ENTER PASSPHRASE';
+        document.getElementById('passphrase-input').style.display = 'block';
+        document.getElementById('passphrase-input').focus();
         document.getElementById('auth-btn').disabled = false;
-    } catch (err) { alert('Invalid Key Format'); }
+    } else {
+        // Legacy .pem support
+        try {
+            await importKeys(text);
+            document.getElementById('upload-status').textContent = 'KEY READY (PLAINTEXT)';
+            document.getElementById('auth-btn').disabled = false;
+            pendingEncFile = null;
+        } catch (err) { alert('Invalid Key Format'); }
+    }
 };
 
 document.getElementById('pem-upload').onclick = () => document.getElementById('file-input').click();
@@ -76,7 +127,29 @@ function sendStrictFrame(obj) {
     ws.send(frame);
 }
 
-document.getElementById('auth-btn').onclick = () => {
+document.getElementById('auth-btn').onclick = async () => {
+    // If we have an encrypted key file, decrypt it first
+    if (pendingEncFile) {
+        const passphrase = document.getElementById('passphrase-input').value;
+        if (!passphrase) {
+            document.getElementById('upload-status').textContent = 'ERROR: PASSPHRASE REQUIRED';
+            return;
+        }
+        try {
+            document.getElementById('upload-status').textContent = 'DECRYPTING KEY (PBKDF2 600k)...';
+            document.getElementById('auth-btn').disabled = true;
+            // Small delay to let the UI update before the heavy PBKDF2 computation
+            await new Promise(r => setTimeout(r, 50));
+            const pemString = await decryptEncryptedKey(pendingEncFile, passphrase);
+            await importKeys(pemString);
+            pendingEncFile = null;
+            document.getElementById('upload-status').textContent = 'KEY DECRYPTED — CONNECTING...';
+        } catch (err) {
+            document.getElementById('upload-status').textContent = 'ERROR: WRONG PASSPHRASE OR CORRUPT FILE';
+            document.getElementById('auth-btn').disabled = false;
+            return;
+        }
+    }
     document.getElementById('login-screen').classList.remove('active');
     document.getElementById('admin-dashboard').classList.add('active');
     connectAdmin();

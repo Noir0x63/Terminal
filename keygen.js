@@ -14,15 +14,18 @@ function askPassphrase(prompt) {
 
 function encryptPrivateKey(pemString, passphrase) {
     const salt = crypto.randomBytes(32);
-    const key = crypto.scryptSync(passphrase, salt, 32, { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
-    const iv = crypto.randomBytes(16);
+    // PBKDF2 used here (not scrypt) because the admin-client must decrypt
+    // this in the browser, and WebCrypto only supports PBKDF2.
+    const iterations = 600000;
+    const key = crypto.pbkdf2Sync(passphrase, salt, iterations, 32, 'sha256');
+    const iv = crypto.randomBytes(12); // 12-byte IV for AES-GCM (standard)
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(pemString, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
     const envelope = {
-        version: 2,
-        kdf: 'scrypt',
-        kdfParams: { N: 131072, r: 8, p: 1 },
+        version: 3,
+        kdf: 'pbkdf2',
+        kdfParams: { iterations: iterations, hash: 'SHA-256' },
         salt: salt.toString('hex'),
         iv: iv.toString('hex'),
         authTag: authTag.toString('hex'),
@@ -57,7 +60,7 @@ async function main() {
 
     fs.writeFileSync('master_public.pem', publicKey);
 
-    console.log('[KEYGEN] Cifrando clave privada con scrypt + AES-256-GCM...');
+    console.log('[KEYGEN] Cifrando clave privada con PBKDF2 (600k) + AES-256-GCM...');
     const encryptedBlob = encryptPrivateKey(privateKey, passphrase);
     fs.writeFileSync('master_private.enc', encryptedBlob);
 

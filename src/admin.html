@@ -129,11 +129,12 @@
     <div id="login-screen" class="active">
         <h2>TERMINAL ADMIN UPLINK</h2>
         <div class="file-upload" id="pem-upload">
-            CLICK TO SELECT master_private.pem
-            <input type="file" id="file-input" style="display:none;" accept=".pem">
+            CLICK TO SELECT master_private.enc
+            <input type="file" id="file-input" style="display:none;" accept=".enc,.pem">
         </div>
         <p id="upload-status"></p>
-        <button id="auth-btn" disabled>AUTHENTICATE</button>
+        <input type="password" id="passphrase-input" placeholder="> PASSPHRASE..." style="display:none;" autocomplete="off">
+        <button id="auth-btn" disabled>DECRYPT & AUTHENTICATE</button>
     </div>
 
     <div id="admin-dashboard">
