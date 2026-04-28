@@ -1,32 +1,38 @@
-# ZTAP PUBLIC SOURCE LICENSE v1.0
+# ZTAP PUBLIC SOURCE LICENSE v1.1 (STRICT)
 
 Copyright (c) 2026 Noir0x63. All rights reserved.
 
-## 1. PURPOSE
-This license governs the use of the ZTAP Protocol and Terminal software ("the Software"). The goal is to provide a transparent source code for public auditing and personal privacy use, while reserving all commercial rights to the original author.
+## 1. PURPOSE AND DEFINITIONS
+This license governs the use of the ZTAP Protocol and Terminal software ("the Software"). The explicit goal is to provide transparent source code for public auditing and strict individual, non-commercial use, while reserving absolute commercial, corporate, and derivative rights to the original author.
 
-## 2. PERMITTED USE (NON-COMMERCIAL)
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction for **PERSONAL, PRIVATE, AND NON-COMMERCIAL** purposes, including:
-*   Viewing and auditing the source code.
-*   Running a private instance of the software for personal use.
-*   Modifying the software for personal, non-distributed use.
+## 2. PERMITTED USE (INDIVIDUAL & NON-COMMERCIAL)
+Permission is hereby granted, free of charge, exclusively to individuals obtaining a copy of this software, to use the Software strictly for PERSONAL, PRIVATE, AND NON-COMMERCIAL purposes. Permitted actions are strictly limited to:
+*   Viewing, analyzing, and auditing the source code.
+*   Running a private instance of the software solely for personal communications among individuals.
+*   Modifying the software strictly for local, personal use (without distribution).
 
-## 3. PROHIBITED USE (COMMERCIAL)
-**COMMERCIAL USE IS STRICTLY PROHIBITED.** 
-You may NOT use the Software or any of its components for any commercial purpose without explicit, written permission from the author (Noir0x63). Commercial use includes, but is not limited to:
-*   Selling the software or services derived from it.
-*   Using the software within a for-profit organization.
-*   Integrating the software into a paid product or platform.
-*   Charging for access to an instance of the software.
+## 3. STRICTLY PROHIBITED USE (COMMERCIAL & CORPORATE)
+ANY DIRECT OR INDIRECT COMMERCIAL, CORPORATE, OR ORGANIZATIONAL USE IS STRICTLY PROHIBITED.
+You may NOT use the Software, or any of its components, algorithms, or architectures, for any purpose that generates revenue, value, or utility for any commercial entity without explicit, prior written permission from Noir0x63. Prohibited uses include, but are not limited to:
+*   **Selling, licensing, or sublicensing** the Software.
+*   **Internal Corporate Use:** Deploying the Software for internal communications within any business, non-profit, government, or organizational entity, regardless of whether the entity itself generates profit.
+*   **The SaaS Loophole:** Hosting or providing the Software as a Service (SaaS), Platform as a Service (PaaS), or via any network deployment to third parties where monetization occurs through advertising, data harvesting, freemium models, or mandatory donations.
+*   **Integrating** the Software's cryptographic implementations into other products or platforms.
 
-## 4. REDISTRIBUTION
-Redistribution of the source code or binary forms is permitted provided that:
-*   The original copyright notice and this license remain intact.
-*   The redistribution is entirely non-commercial.
-*   No fees are charged for the redistribution itself.
+## 4. REDISTRIBUTION AND DERIVATIVE WORKS
+Redistribution of the unmodified source code is permitted solely for educational or auditing purposes, provided that:
+*   The original copyright notice, attribution to Noir0x63, and this exact License remain fully intact and unaltered.
+*   No fees of any kind are charged for the redistribution.
+*   **NO FORKS:** You are strictly prohibited from distributing modified versions, derivative works, or altered binaries of the Software to the public without explicit written consent. If you modify the code for an audit or Proof of Concept (PoC), it must be submitted directly to the author and not distributed as a competing public project.
 
-## 5. DISCLAIMER
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+## 5. ATTRIBUTION AND INTEGRITY
+You must not remove, alter, obscure, or bypass any copyright, trademark, attribution notices, or integrity checks (such as the GOLD_HASH mechanism) embedded within the Software's code or User Interface.
+
+## 6. AUTOMATIC TERMINATION
+This license, and all rights granted hereunder, will terminate automatically and immediately without notice if you fail to comply with any provision of this License. Upon termination, you must immediately cease all use of the Software and destroy all copies in your possession.
+
+## 7. DISCLAIMER OF LIABILITY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND ANTI-TAMPERING. IN NO EVENT SHALL THE AUTHOR (NOIR0X63) OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE, ITS CRYPTOGRAPHIC IMPLEMENTATION, OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
-**Contact for Commercial Licensing:** Noir0x63 (via GitHub)
+**Commercial & Enterprise Licensing Inquiries:** Noir0x63 (via Official Channels)
