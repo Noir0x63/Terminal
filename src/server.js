@@ -206,9 +206,12 @@ wss.on('connection', (ws) => {
                 if (!stored || Date.now() - stored.ts > CHALLENGE_TTL) return ws.close(1008);
                 const pubKey = await getMasterPublicKey();
                 if (!pubKey) return ws.close(1008);
-                const verify = crypto.createVerify('SHA256');
-                verify.update(stored.nonce);
-                if (verify.verify(pubKey, Buffer.from(data.signature, 'base64'))) {
+                const isValid = crypto.verify('sha256', Buffer.from(stored.nonce), {
+                    key: pubKey,
+                    padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+                    saltLength: 32
+                }, Buffer.from(data.signature, 'base64'));
+                if (isValid) {
                     if (adminSocket && adminSocket.readyState === WebSocket.OPEN) adminSocket.close(1000);
                     adminSocket = ws;
                     challenges.delete(ws);
@@ -223,6 +226,10 @@ wss.on('connection', (ws) => {
             }
 
             if (data.type === 'INIT') {
+                if (!data.powNonce || !verifyPoW(ws, data.powNonce)) {
+                    const challenge = generatePoWChallenge(ws);
+                    return sendStrictFrame(ws, { type: 'POW_CHALLENGE', challenge, difficulty: POW_DIFFICULTY });
+                }
                 if (!data.user || data.user.length > 64) return ws.close(1008);
                 ws.username = data.user;
                 ws.initData = { ...data, sessionId: ws.sessionId };

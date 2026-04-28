@@ -129,7 +129,14 @@ function initWorker() {
         worker.onmessage = async e => {
             const data = e.data;
             if (data.type === 'INITIALIZED') {
-                sendStrictFrame(JSON.stringify({ type: 'INIT', user: username, token: userToken, data: data.payload }));
+                const initObj = { type: 'INIT', user: username, token: userToken, data: data.payload };
+                if (pendingPoWChallenge) {
+                    pendingPoWMessage = initObj;
+                    worker.postMessage({ type: 'SOLVE_POW', challenge: pendingPoWChallenge.challenge, difficulty: pendingPoWChallenge.difficulty });
+                } else {
+                    pendingPoWMessage = initObj;
+                    sendStrictFrame(JSON.stringify({ type: 'REQ_POW' }));
+                }
                 document.querySelectorAll('.active').forEach(e => e.classList.remove('active'));
                 document.getElementById('chat-screen').classList.add('active');
                 attestHmacKey = await deriveAttestVerifyKey(userToken, username);
@@ -184,7 +191,7 @@ function initWorker() {
                 }
             } else if (data.type === 'ERROR') { reject(data.error); }
         };
-        worker.postMessage({ type: 'INIT', username: username, token: userToken, masterPublicPem: MASTER_PUBLIC_PEM, expectedHash: '' });
+        worker.postMessage({ type: 'INIT', username: username, token: userToken, masterPublicPem: MASTER_PUBLIC_PEM, expectedHash: 'INJECT_EXPECTED_HASH' });
     });
 }
 

@@ -21,7 +21,7 @@ async function importKeys(pem) {
     const clean = pem.replace(/-----(BEGIN|END) PRIVATE KEY-----|\s/g, '');
     const binary = base64ToBuffer(clean);
     masterPrivateKey = await crypto.subtle.importKey('pkcs8', binary.buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
-    masterSignKey = await crypto.subtle.importKey('pkcs8', binary.buffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+    masterSignKey = await crypto.subtle.importKey('pkcs8', binary.buffer, { name: 'RSA-PSS', hash: 'SHA-256' }, false, ['sign']);
 }
 
 document.getElementById('file-input').onchange = async (e) => {
@@ -97,7 +97,7 @@ function connectAdmin() {
             const frame = JSON.parse(new TextDecoder().decode(new Uint8Array(e.data, 4, len)));
             
             if (frame.type === 'AUTH_CHALLENGE') {
-                const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', masterSignKey, new TextEncoder().encode(frame.nonce));
+                const sig = await crypto.subtle.sign({ name: 'RSA-PSS', saltLength: 32 }, masterSignKey, new TextEncoder().encode(frame.nonce));
                 sendStrictFrame({ type: 'ADMIN_AUTH', signature: bufferToBase64(sig) });
             }
 

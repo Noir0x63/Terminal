@@ -47,7 +47,7 @@ console.log('[BUILD] Inyectando GOLD_HASH y Master Key en client.js...');
 const clientJsRaw = fs.readFileSync('src/client.js', 'utf8');
 const clientJsInjected = clientJsRaw
     .replace('INJECT_MASTER_PUBLIC_KEY', pemContents)
-    .replace("expectedHash: ''", `expectedHash: '${goldHash}'`);
+    .replace("expectedHash: 'INJECT_EXPECTED_HASH'", `expectedHash: '${goldHash}'`);
 
 console.log('[BUILD] Ofuscando client.js...');
 const clientObfuscated = JavaScriptObfuscator.obfuscate(clientJsInjected, obfuscationOptions).getObfuscatedCode();
