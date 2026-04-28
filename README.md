@@ -52,8 +52,9 @@ The protocol implements a multi-layered encryption stack using the native **WebC
 
 ### 2. Encrypted-At-Rest Key Management
 All cryptographic secrets are protected at rest — plaintext key material **never** persists on disk.
-*   **Master Private Key:** Encrypted with AES-256-GCM, derived via **scrypt** (N=131072, r=8, p=1) from an admin passphrase. Stored as `master_private.enc`.
-*   **Admin HMAC Secret:** Derived deterministically from the admin passphrase — no `admin_token.txt` file ever exists.
+*   **Master Private Key:** Encrypted with AES-256-GCM, key derived via **PBKDF2** (600,000 iterations, SHA-256) from an admin passphrase. Stored as `master_private.enc`.
+*   **Browser-Side Decryption:** The admin panel decrypts `master_private.enc` **entirely in the browser** using WebCrypto PBKDF2. The plaintext key exists only in volatile RAM — it never reaches the server.
+*   **Admin HMAC Secret:** Derived deterministically from the admin passphrase via scrypt — no `admin_token.txt` file ever exists.
 *   **Server Nonce:** A random 32-byte nonce generated per keygen cycle, adding entropy to admin route rotation and preventing prediction attacks.
 *   **Legacy Purge:** On startup, the launcher securely overwrites and deletes any legacy plaintext files (`master_private.pem`, `admin_token.txt`) with random data before unlinking.
 
@@ -86,6 +87,33 @@ The client-side logic is hardened through integrity verification rather than sec
 
 ---
 
+## 🔐 Admin Authentication Flow
+
+The admin panel implements a **zero-trust, browser-side decryption** pipeline:
+
+```mermaid
+sequenceDiagram
+    participant A as Admin Browser
+    participant S as ZTAP Server
+    
+    Note over A: Navigate to hourly HMAC route
+    A->>A: Upload master_private.enc
+    A->>A: Enter passphrase
+    A->>A: PBKDF2 (600k) → AES key
+    A->>A: AES-256-GCM decrypt → RSA PEM (in RAM only)
+    A->>A: Import RSA-OAEP + RSA-PSS keys
+    A->>S: WebSocket HANDSHAKE
+    S->>A: AUTH_CHALLENGE (random nonce)
+    A->>A: RSA-PSS sign(nonce)
+    A->>S: ADMIN_AUTH (signature)
+    S->>S: RSA-PSS verify(signature, master_public.pem)
+    S->>A: ✓ Authenticated → Dashboard
+```
+
+**Key principle:** The server **never** sees the private key or the passphrase. Authentication is proven via RSA-PSS challenge-response — the server only holds the public key.
+
+---
+
 ## 🚀 Deployment (Onion Service)
 The system is optimized for **Tor Hidden Services**:
 1.  **Launcher:** Automates the instantiation of the local Tor binary and the Node.js relay.
@@ -103,6 +131,9 @@ node keygen.js
 
 # 3. Launch (builds, purges legacy files, starts server + Tor)
 node launcher.js
+
+# 4. Access admin panel at the printed HMAC route
+#    Upload master_private.enc + enter passphrase
 ```
 
 > ⚠️ **Remember your passphrase.** There is no recovery mechanism without it.
@@ -117,7 +148,8 @@ node launcher.js
 | **Stream Cipher** | AES-256-GCM | NIST SP 800-38D |
 | **Key Derivation** | PBKDF2 (600k) + scrypt | OWASP 2025 |
 | **Signatures** | RSA-PSS (32-byte salt) | PKCS#1 v2.1 |
-| **Key Storage** | AES-256-GCM + scrypt | Encrypted-at-rest |
+| **Key Storage** | AES-256-GCM + PBKDF2 (600k) | Encrypted-at-rest |
+| **Admin Auth** | Browser-side decrypt + RSA-PSS C/R | Zero-trust |
 | **Forward Secrecy** | ECDH ephemeral per session | PFS compliant |
 | **Anti-DoS** | Adaptive PoW (16–24 bit) | Dynamic scaling |
 | **Transport** | Tor Hidden Service | Onion routing |
