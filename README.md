@@ -1,8 +1,10 @@
-# 🗲 ZTAP V1.0: Zero-Knowledge Terminal Architecture & Protocol
+# 🗲 ZTAP V3.0: Zero-Knowledge Terminal Architecture & Protocol
 
-[![Security: Hardened](https://img.shields.io/badge/Security-Hardened-green.svg)](https://github.com/Noir0x63/Terminal)
+[![Security: IRONCLAD v3.0](https://img.shields.io/badge/Security-IRONCLAD_v3.0-brightgreen.svg)](https://github.com/Noir0x63/Terminal)
 [![Encryption: AES--256--GCM](https://img.shields.io/badge/Encryption-AES--256--GCM-blue.svg)]()
+[![PFS: ECDH--P256](https://img.shields.io/badge/PFS-ECDH--P256-blue.svg)]()
 [![Network: Tor--Only](https://img.shields.io/badge/Network-Tor--Only-blueviolet.svg)]()
+[![Keys: Encrypted--At--Rest](https://img.shields.io/badge/Keys-Encrypted--At--Rest-critical.svg)]()
 
 **ZTAP (Zero-Knowledge Terminal Architecture & Protocol)** is a high-security, volatile communication framework designed to operate over untrusted infrastructure (Tor Hidden Services, Blind Relays, or Compromised Nodes). 
 
@@ -20,7 +22,7 @@ graph LR
     C --> D[4096B Strict Padding]
     end
 
-    D -- "Encrypted Envelope (Tor/Onion)" --> E
+    D -- "ECDH Ephemeral Channel (Tor/Onion)" --> E
 
     subgraph "BLIND RELAY (Node.js Server)"
     E[Memory-Only Buffer] --> F[Zero-Persistence Vault]
@@ -41,45 +43,91 @@ graph LR
 ## 🔒 Security Core (Hardening Features)
 
 ### 1. Autonomous Cryptographic Engine
-The protocol implements a double-layered encryption stack using the native **WebCrypto API**, eliminating third-party library dependencies and mitigating supply chain attacks.
-*   **Key Exchange:** RSA-OAEP (4096-bit) with SHA-256.
+The protocol implements a multi-layered encryption stack using the native **WebCrypto API**, eliminating third-party library dependencies and mitigating supply chain attacks.
+*   **Key Exchange:** RSA-OAEP (4096-bit) with SHA-256 for identity authentication.
+*   **Perfect Forward Secrecy:** ECDH (P-256) ephemeral keypair per session — compromising the master RSA key does **NOT** reveal historical traffic.
 *   **Stream Security:** AES-256-GCM with unique Initialization Vectors (IV) per frame.
 *   **Signature Scheme:** **RSA-PSS** (Probabilistic Signature Scheme) with 32-byte salt for identity verification (Admin Command & Control).
 *   **Identity Derivation:** PBKDF2-HMAC-SHA256 with **600,000 iterations** to ensure brute-force resistance.
 
-### 2. Traffic Analysis Mitigation (DPI Defense)
+### 2. Encrypted-At-Rest Key Management
+All cryptographic secrets are protected at rest — plaintext key material **never** persists on disk.
+*   **Master Private Key:** Encrypted with AES-256-GCM, derived via **scrypt** (N=131072, r=8, p=1) from an admin passphrase. Stored as `master_private.enc`.
+*   **Admin HMAC Secret:** Derived deterministically from the admin passphrase — no `admin_token.txt` file ever exists.
+*   **Server Nonce:** A random 32-byte nonce generated per keygen cycle, adding entropy to admin route rotation and preventing prediction attacks.
+*   **Legacy Purge:** On startup, the launcher securely overwrites and deletes any legacy plaintext files (`master_private.pem`, `admin_token.txt`) with random data before unlinking.
+
+### 3. Traffic Analysis Mitigation (DPI Defense)
 *   **Strict Padding:** Every payload is packed into a fixed-size **4096-byte** binary ArrayBuffer. This nullifies length-based side-channel analysis.
 *   **Stochastic Chaffing:** Asynchronous injection of synthetic noise frames via randomized timers to obfuscate temporal patterns.
-*   **Proof of Work (PoW):** Implementation of SHA-256 based PoW challenges for `INIT` and message frames to prevent Asymmetric DoS attacks on the Admin node.
+*   **Adaptive Proof of Work (PoW):** SHA-256 based PoW challenges with **dynamic difficulty** (16–24 bits) that scales with server connection load to prevent Asymmetric DoS attacks.
 
-### 3. Volatile Anti-Forensics Layer
+### 4. Volatile Anti-Forensics Layer
 ZTAP is designed for **Zero-Persistence**.
 *   **Memory Hygiene:** TypedArrays (`Uint8Array`) are used for plaintext processing and are sanitized using `.fill(0)` and CSPRNG noise injection immediately after use.
 *   **Automatic 24h Purge:** The server implements a mandatory cleanup cycle that wipes the message vault (RAM and Disk) every 24 hours, ensuring ephemerality.
 *   **Zero-Store Keys:** Session tokens and private keys never touch the server's disk; they reside only in the volatility of the browser's memory and the server's RAM during transport.
 
+### 5. Session Governance & Access Control
+*   **Session Expiry:** All sessions expire after 1 hour, requiring re-authentication.
+*   **Concurrent Limits:** Maximum 2 connections per session ID, 500 total server-wide.
+*   **IP Rate Limiting:** Max 30 connections per minute per IP with exponential backoff bans (up to 10 minutes).
+*   **Admin Route Rotation:** Hourly HMAC-derived admin paths with serverNonce entropy — routes cannot be pre-calculated even with leaked secrets.
+*   **Input Sanitization:** All user-provided fields are validated and stripped of control characters before processing.
+
 ---
 
-## 🛡️ Obfuscation & Dynamic Execution
-The client-side logic is hardened through **AST (Abstract Syntax Tree) Obfuscation**:
-*   **Non-linear State Machines:** Transformation of execution flow to frustrate reverse engineering.
-*   **Dead Code Injection:** Polymorphic branches and dummy logic to increase the cost of manual analysis.
-*   **Worker Integrity:** A `GOLD_HASH` (SHA-512) validation ensures the Web Worker hasn't been tampered with in transit.
+## 🛡️ Integrity & Build Pipeline
+The client-side logic is hardened through integrity verification rather than security-through-obscurity:
+*   **Kerckhoffs' Principle:** Obfuscation has been **removed** — security resides in the keys, not in hiding the algorithm. Code is minified, not obfuscated.
+*   **Worker Integrity:** A `GOLD_HASH` (SHA-512) validation ensures the Web Worker hasn't been tampered with in transit (pre-spawning verification).
+*   **Worker Attestation:** Periodic HMAC-based challenge-response attestation ensures runtime integrity of the cryptographic worker.
+*   **Zero Dependencies for Crypto:** All cryptographic operations use the native WebCrypto API — no third-party libraries in the critical path.
 
 ---
 
 ## 🚀 Deployment (Onion Service)
 The system is optimized for **Tor Hidden Services**:
 1.  **Launcher:** Automates the instantiation of the local Tor binary and the Node.js relay.
-2.  **Identity:** Generates a unique `.onion` address for anonymous access.
-3.  **Governance:** Role-based access via RSA identity files (Master Key).
+2.  **Keygen:** Interactive passphrase-protected key generation (`node keygen.js`). Minimum 12-character passphrase required.
+3.  **Identity:** Generates a unique `.onion` address for anonymous access.
+4.  **Governance:** Role-based access via RSA identity files (encrypted Master Key).
+
+### Quick Start
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Generate encrypted keys (interactive — prompts for passphrase)
+node keygen.js
+
+# 3. Launch (builds, purges legacy files, starts server + Tor)
+node launcher.js
+```
+
+> ⚠️ **Remember your passphrase.** There is no recovery mechanism without it.
+
+---
+
+## 📊 Security Posture
+
+| Layer | Mechanism | Standard |
+|-------|-----------|----------|
+| **Key Exchange** | RSA-4096 + ECDH P-256 | NIST SP 800-56A |
+| **Stream Cipher** | AES-256-GCM | NIST SP 800-38D |
+| **Key Derivation** | PBKDF2 (600k) + scrypt | OWASP 2025 |
+| **Signatures** | RSA-PSS (32-byte salt) | PKCS#1 v2.1 |
+| **Key Storage** | AES-256-GCM + scrypt | Encrypted-at-rest |
+| **Forward Secrecy** | ECDH ephemeral per session | PFS compliant |
+| **Anti-DoS** | Adaptive PoW (16–24 bit) | Dynamic scaling |
+| **Transport** | Tor Hidden Service | Onion routing |
 
 ---
 
 ## ⚖️ Auditing Disclaimer
 > *"A 100% secure system does not exist; there are only systems that are prohibitively expensive to hack."*
 
-ZTAP is built on the principle of **Attack Cost Maximization**. By combining aggressive memory hygiene, traffic normalization, and deep obfuscation, the infrastructure forces adversaries to expend computational resources they are unlikely to invest for standard interception.
+ZTAP is built on the principle of **Attack Cost Maximization**. By combining encrypted-at-rest key management, Perfect Forward Secrecy, aggressive memory hygiene, traffic normalization, and adaptive proof-of-work, the infrastructure forces adversaries to expend computational resources they are unlikely to invest for standard interception.
 
 ---
 **Developed and Hardened by Noir0x63** 🔒🎩
