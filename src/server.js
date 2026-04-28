@@ -8,7 +8,8 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 
-const messageVault = [];
+let messageVault = [];
+let adminSocket = null;
 const activeSessionIds = new Set(); // Prevención de colisiones y suplantación de UI
 
 const VAULT_FILE = path.join(__dirname, '../vault.json');
@@ -76,8 +77,6 @@ function verifyPoW(ws, nonce) {
     return false;
 }
 
-let messageVault = [];
-let adminSocket = null;
 const sessionSockets = new Map(); // sessionId -> Set(ws)
 const challenges = new Map();
 const activeSessions = new Map(); // sessionId -> count
