@@ -240,15 +240,23 @@ async function connect() {
             if (frame.type === 'HISTORY' || frame.type === 'NEW_MESSAGE') {
                 const record = frame.data ? frame.data.content : frame.content;
                 if (!record) return;
-                if (record.targetUser === username && record.type === 'SERVER_MSG') {
+
+                // Mensaje Directo del Administrador
+                if (record.type === 'SERVER_MSG') {
                     const encryptedData = record.payload.encData || record.payload;
                     worker.postMessage({ type: 'DECRYPT_MSG', payload: Array.from(base64ToBuffer(encryptedData)) });
-                } else if (record.user === 'ADMIN' && record.type === 'BROADCAST') {
+                } 
+                // Broadcast del Administrador
+                else if (record.user === 'ADMIN' && record.type === 'BROADCAST') {
                     const encryptedData = record.payload.encData || record.payload;
                     worker.postMessage({ type: 'DECRYPT_MSG', payload: Array.from(base64ToBuffer(encryptedData)) });
-                } else if (record.type === 'FILE_META' && record.targetUser === username) {
+                } 
+                // Metadatos de Archivo Entrante
+                else if (record.type === 'FILE_META') {
                     appendMessage(`INCOMING FILE: ${record.filename} (${record.totalChunks} chunks, ${record.fileSize} bytes)`, false);
-                } else if (record.type === 'FILE_CHUNK' && record.targetUser === username) {
+                } 
+                // Fragmento de Archivo Entrante
+                else if (record.type === 'FILE_CHUNK') {
                     worker.postMessage({ type: 'DECRYPT_FILE_CHUNK', payload: Array.from(base64ToBuffer(record.encData)), chunkIndex: record.chunkIndex, totalChunks: record.totalChunks, filename: record.filename });
                 }
             } else if (frame.type === 'NUKE_EVENT') {
