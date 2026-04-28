@@ -106,21 +106,16 @@ tor.stdout.on('data', (data) => {
         const text = line.trim();
         if (!text) return;
 
-        // Filtrar logs irrelevantes de Tor para mantener limpieza
-        if (text.includes('Bootstrapped') ||
-            text.includes('Heartbeat') ||
-            text.includes('Opened circuit') ||
-            text.includes('Self-testing') ||
-            text.includes('Ready to announce') ||
-            text.toLowerCase().includes('error') ||
-            text.toLowerCase().includes('warn')) {
-
-            log('TOR', text);
+        // Filtrar logs de Tor: Solo mostrar progreso esencial
+        if (text.includes('Bootstrapped')) {
+            // Extraer solo el porcentaje para mantener limpieza
+            const match = text.match(/Bootstrapped \d+%/);
+            if (match) log('TOR', match[0]);
         }
 
         // Si Tor ya está listo, buscamos el hostname
         if (text.includes('Bootstrapped 100%')) {
-            log('TOR', 'Tor se ha conectado a la red al 100%.');
+            log('TOR', 'Conexión exitosa a la red Tor.');
             checkOnionAddress();
         }
     });
