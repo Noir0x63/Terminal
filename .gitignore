@@ -1,10 +1,14 @@
 node_modules/
 public/
-admin_token.txt
-master_private.pem
 vault.json
 Tor/
 .DS_Store
 *.logic.pem
 ACCESO_ADMIN.txt
 GOLD_HASH.txt
+
+# ── SECURITY: Secrets never committed ──
+admin_token.txt
+master_private.pem
+master_private.enc
+server_secrets.enc

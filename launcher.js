@@ -23,22 +23,30 @@ function log(module, message, color = THEME.TEXT) {
 console.clear();
 console.log(`${THEME.BANNER}${THEME.BOLD}====================================================${THEME.RESET}`);
 console.log(`${THEME.BANNER}${THEME.BOLD}             TERMINAL - TOR HIDDEN SERVICE          ${THEME.RESET}`);
+console.log(`${THEME.BANNER}${THEME.BOLD}              IRONCLAD v3.0 (HARDENED)              ${THEME.RESET}`);
 console.log(`${THEME.BANNER}${THEME.BOLD}====================================================${THEME.RESET}\n`);
 
-// 1. Verificar existencia de master_public.pem
-if (!fs.existsSync('master_public.pem')) {
-    log('SYSTEM', 'Archivo master_public.pem no encontrado. Generando llaves maestras...');
+// 1. Verificar existencia de master_public.pem y master_private.enc
+if (!fs.existsSync('master_public.pem') || !fs.existsSync('master_private.enc')) {
+    log('SYSTEM', 'Archivos de clave maestra no encontrados. Ejecutando keygen.js...');
+    log('SYSTEM', 'Se te pedirá una passphrase maestra para cifrar la clave privada.');
     try {
         execSync('node keygen.js', { stdio: 'inherit' });
-        log('SYSTEM', 'Llaves generadas correctamente.');
+        log('SYSTEM', 'Llaves generadas y cifradas correctamente.');
     } catch (e) {
         log('SYSTEM', 'Error fatal: No se pudo generar el par de llaves.', THEME.ERROR);
         process.exit(1);
     }
 }
 
-// 2. Ejecutar Build (genera nuevo HMAC secret → nueva ruta admin)
-log('BUILD', 'Iniciando proceso de ofuscación y empaquetado...');
+// Verify server_secrets.enc exists
+if (!fs.existsSync('server_secrets.enc')) {
+    log('SYSTEM', 'server_secrets.enc no encontrado. Ejecuta keygen.js para generar los secretos.', THEME.ERROR);
+    process.exit(1);
+}
+
+// 2. Ejecutar Build (usa server_secrets.enc → nueva ruta admin)
+log('BUILD', 'Iniciando proceso de empaquetado (sin ofuscación)...');
 try {
     execSync('node build.js', { stdio: 'inherit' });
     log('BUILD', '¡Build completado con éxito!');
@@ -56,6 +64,34 @@ try {
     }
 } catch (e) {
     log('VAULT', 'Advertencia: no se pudo purgar el vault.', THEME.ERROR);
+}
+
+// Purge any legacy admin_token.txt if it exists (CRÍTICO 2: clean up)
+const legacyTokenPath = path.join(__dirname, 'admin_token.txt');
+if (fs.existsSync(legacyTokenPath)) {
+    try {
+        // Overwrite with random data before deletion (anti-forense)
+        const randomFill = require('crypto').randomBytes(64);
+        fs.writeFileSync(legacyTokenPath, randomFill);
+        fs.unlinkSync(legacyTokenPath);
+        log('SECURITY', 'admin_token.txt legacy eliminado de forma segura.');
+    } catch (e) {
+        log('SECURITY', 'Advertencia: no se pudo eliminar admin_token.txt legacy.', THEME.ERROR);
+    }
+}
+
+// Purge any legacy master_private.pem if it exists (CRÍTICO 1: clean up)
+const legacyPrivateKeyPath = path.join(__dirname, 'master_private.pem');
+if (fs.existsSync(legacyPrivateKeyPath)) {
+    try {
+        const stat = fs.statSync(legacyPrivateKeyPath);
+        const randomFill = require('crypto').randomBytes(stat.size);
+        fs.writeFileSync(legacyPrivateKeyPath, randomFill);
+        fs.unlinkSync(legacyPrivateKeyPath);
+        log('SECURITY', 'master_private.pem legacy eliminado de forma segura (sobrescrito + eliminado).');
+    } catch (e) {
+        log('SECURITY', 'Advertencia: no se pudo eliminar master_private.pem legacy.', THEME.ERROR);
+    }
 }
 
 console.log("");

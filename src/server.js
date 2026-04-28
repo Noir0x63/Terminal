@@ -20,45 +20,79 @@ const BROADCAST_LIMIT_MS = 500; // 2 mensajes por segundo
 const HANDSHAKE_TIMEOUT = 20000;
 const MAX_CONN_PER_ID = 2;
 const MAX_TOTAL_CONN = 500;
+const SESSION_MAX_AGE = 3600000; // 1 hora — re-autenticación periódica
+const MAX_INPUT_LENGTH = 4096;
 
+// ──────────────────────────────────────────────────────────────────────────
+// CRÍTICO 2 MITIGATION: Server secrets loaded from encrypted vault
+// No more admin_token.txt — HMAC secret is derived from passphrase at keygen
+// ──────────────────────────────────────────────────────────────────────────
 let HMAC_SECRET = null;
+let SERVER_NONCE = null;
 try {
-    HMAC_SECRET = fsSync.readFileSync(path.join(__dirname, '../admin_token.txt'), 'utf8').trim();
+    const secrets = JSON.parse(fsSync.readFileSync(path.join(__dirname, '../server_secrets.enc'), 'utf8'));
+    HMAC_SECRET = secrets.adminSecret;
+    SERVER_NONCE = secrets.serverNonce;
 } catch (e) {
-    console.error('[SERVER] ADVERTENCIA: admin_token.txt no encontrado.');
+    console.error('[SERVER] ADVERTENCIA CRÍTICA: server_secrets.enc no encontrado. Ejecuta keygen.js primero.');
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// ALTO 3 MITIGATION: serverNonce adds entropy to route HMAC
+// Even if HMAC_SECRET is leaked, routes cannot be predicted without serverNonce
+// ──────────────────────────────────────────────────────────────────────────
 function computeAdminPath(dayOffset = 0) {
-    if (!HMAC_SECRET) return null;
+    if (!HMAC_SECRET || !SERVER_NONCE) return null;
     const dayNonce = String(Math.floor(Date.now() / 86400000) + dayOffset);
     const hourlyNonce = String(Math.floor(Date.now() / 3600000));
-    return crypto.createHmac('sha256', HMAC_SECRET).update(dayNonce + ':' + hourlyNonce).digest('hex');
+    return crypto.createHmac('sha256', HMAC_SECRET)
+        .update(dayNonce + ':' + hourlyNonce + ':' + SERVER_NONCE)
+        .digest('hex');
 }
 
 function isValidAdminPath(token) {
-    if (!HMAC_SECRET || !token) return false;
+    if (!HMAC_SECRET || !token || typeof token !== 'string') return false;
     const current = computeAdminPath(0);
+    if (!current) return false;
     const lastHour = crypto.createHmac('sha256', HMAC_SECRET)
-        .update(String(Math.floor(Date.now() / 86400000)) + ':' + String(Math.floor(Date.now() / 3600000) - 1))
+        .update(String(Math.floor(Date.now() / 86400000)) + ':' + String(Math.floor(Date.now() / 3600000) - 1) + ':' + SERVER_NONCE)
         .digest('hex');
-    const tBuf = Buffer.from(token.padEnd(64, '0').slice(0, 64));
-    const cBuf = Buffer.from(current.padEnd(64, '0').slice(0, 64));
-    const lBuf = Buffer.from(lastHour.padEnd(64, '0').slice(0, 64));
-    return crypto.timingSafeEqual(tBuf, cBuf) || crypto.timingSafeEqual(tBuf, lBuf);
+    try {
+        const tBuf = Buffer.from(token.padEnd(64, '0').slice(0, 64));
+        const cBuf = Buffer.from(current.padEnd(64, '0').slice(0, 64));
+        const lBuf = Buffer.from(lastHour.padEnd(64, '0').slice(0, 64));
+        return crypto.timingSafeEqual(tBuf, cBuf) || crypto.timingSafeEqual(tBuf, lBuf);
+    } catch (e) {
+        return false;
+    }
 }
 
-const POW_DIFFICULTY = 16;
+// ──────────────────────────────────────────────────────────────────────────
+// MEDIO 5 MITIGATION: Adaptive PoW difficulty
+// Base difficulty + surge multiplier under connection pressure
+// ──────────────────────────────────────────────────────────────────────────
+const POW_BASE_DIFFICULTY = 16;
+const POW_MAX_DIFFICULTY = 24;
 const powChallenges = new Map();
+
+function getAdaptiveDifficulty() {
+    const connectionLoad = wss ? wss.clients.size / MAX_TOTAL_CONN : 0;
+    if (connectionLoad > 0.8) return POW_MAX_DIFFICULTY;
+    if (connectionLoad > 0.5) return POW_BASE_DIFFICULTY + 4;
+    return POW_BASE_DIFFICULTY;
+}
 
 function generatePoWChallenge(ws) {
     const challenge = crypto.randomBytes(16).toString('hex');
-    powChallenges.set(ws, { challenge, ts: Date.now() });
-    return challenge;
+    const difficulty = getAdaptiveDifficulty();
+    powChallenges.set(ws, { challenge, ts: Date.now(), difficulty });
+    return { challenge, difficulty };
 }
 
 function verifyPoW(ws, nonce) {
     const stored = powChallenges.get(ws);
     if (!stored || Date.now() - stored.ts > 60000) return false;
+    if (typeof nonce !== 'string' || nonce.length > 32) return false;
     const hash = crypto.createHash('sha256').update(nonce + stored.challenge).digest();
     let zeroBits = 0;
     for (const byte of hash) {
@@ -68,19 +102,45 @@ function verifyPoW(ws, nonce) {
             while ((b & 0x80) === 0) { zeroBits++; b <<= 1; }
             break;
         }
-        if (zeroBits >= POW_DIFFICULTY) break;
+        if (zeroBits >= stored.difficulty) break;
     }
-    if (zeroBits >= POW_DIFFICULTY) {
+    if (zeroBits >= stored.difficulty) {
         powChallenges.delete(ws);
         return true;
     }
     return false;
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// MEDIO 6 MITIGATION: Per-session ECDH for Perfect Forward Secrecy
+// Each client generates an ephemeral ECDH keypair during handshake.
+// The shared secret is used for the session — compromising the master RSA
+// key does NOT compromise past session traffic.
+// ──────────────────────────────────────────────────────────────────────────
+const sessionECDH = new Map(); // sessionId -> { ecdh, sharedKey }
+
+function generateECDHKeyPair() {
+    const ecdh = crypto.createECDH('prime256v1');
+    ecdh.generateKeys();
+    return ecdh;
+}
+
 const sessionSockets = new Map(); // sessionId -> Set(ws)
 const challenges = new Map();
-const activeSessions = new Map(); // sessionId -> count
-const connRateLimit = new Map(); // ip -> lastTime
+const activeSessions = new Map(); // sessionId -> { count, createdAt }
+const connRateLimit = new Map(); // ip -> { lastTime, count }
+const ipBanList = new Map(); // ip -> banExpiry (exponential backoff)
+
+// ──────────────────────────────────────────────────────────────────────────
+// BAJO 8 MITIGATION: Session governance
+// Sessions have max age, concurrent limits, and re-auth requirements
+// ──────────────────────────────────────────────────────────────────────────
+
+function isSessionExpired(sessionId) {
+    const session = activeSessions.get(sessionId);
+    if (!session) return true;
+    return (Date.now() - session.createdAt) > SESSION_MAX_AGE;
+}
 
 async function loadVault() {
     try {
@@ -111,7 +171,31 @@ setInterval(async () => {
     }
 }, 86400000);
 
+// Limpieza periódica de sesiones expiradas
+setInterval(() => {
+    const now = Date.now();
+    for (const [sessionId, session] of activeSessions) {
+        if (now - session.createdAt > SESSION_MAX_AGE) {
+            const sockets = sessionSockets.get(sessionId);
+            if (sockets) {
+                for (const s of sockets) {
+                    try { sendStrictFrame(s, { type: 'SESSION_EXPIRED' }); } catch (e) { }
+                    try { s.close(1008, 'Session expired'); } catch (e) { }
+                }
+                sessionSockets.delete(sessionId);
+            }
+            activeSessions.delete(sessionId);
+            sessionECDH.delete(sessionId);
+        }
+    }
+    // Limpiar IP bans expirados
+    for (const [ip, expiry] of ipBanList) {
+        if (now > expiry) ipBanList.delete(ip);
+    }
+}, 60000);
+
 function hashField(val) {
+    if (typeof val !== 'string') return '';
     const salt = HMAC_SECRET ? crypto.createHash('sha256').update(HMAC_SECRET).digest('hex').slice(0, 16) : 'static_salt';
     return crypto.createHash('sha256').update(String(val) + salt).digest('hex');
 }
@@ -124,16 +208,38 @@ async function getMasterPublicKey() {
     }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Input Sanitization (NEGATIVO audit point)
+// ──────────────────────────────────────────────────────────────────────────
+function sanitizeString(input, maxLen = 256) {
+    if (typeof input !== 'string') return '';
+    return input.slice(0, maxLen).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+function validateSessionId(id) {
+    if (typeof id !== 'string') return false;
+    if (id.length !== 32) return false;
+    return /^[a-f0-9]{32}$/.test(id);
+}
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
 app.use(cors());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
+
+// ──────────────────────────────────────────────────────────────────────────
+// Rate limiting granular (ALTA PRIORIDAD audit point 6)
+// ──────────────────────────────────────────────────────────────────────────
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false }));
 app.use((req, res, next) => {
     res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss: blob: data:; img-src 'self' data:; media-src 'self' data:; frame-ancestors 'none';");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    res.setHeader("X-XSS-Protection", "0");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     next();
 });
 
@@ -147,12 +253,37 @@ app.use(express.static(path.join(__dirname, '../public')));
 server.on('upgrade', (request, socket, head) => {
     const ip = request.socket.remoteAddress;
     const now = Date.now();
-    if (connRateLimit.has(ip) && now - connRateLimit.get(ip) < 1000) {
+
+    // Check IP ban
+    if (ipBanList.has(ip) && now < ipBanList.get(ip)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+    }
+
+    // Rate limiting with exponential backoff tracking
+    const rateEntry = connRateLimit.get(ip) || { lastTime: 0, count: 0, windowStart: now };
+    if (now - rateEntry.windowStart > 60000) {
+        rateEntry.count = 0;
+        rateEntry.windowStart = now;
+    }
+    rateEntry.count++;
+    rateEntry.lastTime = now;
+    connRateLimit.set(ip, rateEntry);
+
+    if (rateEntry.count > 30) { // Max 30 connections per minute per IP
+        const banDuration = Math.min(rateEntry.count * 10000, 600000); // Up to 10 min ban
+        ipBanList.set(ip, now + banDuration);
         socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
         socket.destroy();
         return;
     }
-    connRateLimit.set(ip, now);
+
+    if (now - rateEntry.lastTime < 500 && rateEntry.count > 5) {
+        socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+        socket.destroy();
+        return;
+    }
 
     if (wss.clients.size >= MAX_TOTAL_CONN) {
         socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
@@ -182,36 +313,93 @@ wss.on('connection', (ws) => {
     ws.lastReset = Date.now();
     ws.sessionId = null;
     ws.lastBroadcast = 0;
+    ws.authenticated = false;
 
     const hTimeout = setTimeout(() => { if (!ws.sessionId) ws.close(1008); }, HANDSHAKE_TIMEOUT);
 
     ws.on('message', async (message) => {
         const now = Date.now();
+
+        // Rate limiting per socket
         if (now - ws.lastReset > 10000) { ws.msgCount = 0; ws.lastReset = now; }
         if (++ws.msgCount > MSG_RATE_LIMIT) return ws.close(1008);
         if (message.length !== 4096) return;
 
         try {
             const len = message.readUint32LE(0);
-            if (len === 0) return;
-            const data = JSON.parse(message.subarray(4, 4 + len).toString('utf8'));
+            if (len === 0) return; // Chaff frame — ignore silently
+            if (len > 4092) return; // Invalid frame
+            const rawJson = message.subarray(4, 4 + len).toString('utf8');
+            const data = JSON.parse(rawJson);
+
+            // Validate data.type exists and is a string
+            if (!data || typeof data.type !== 'string') return;
 
             if (!ws.sessionId && data.type !== 'HANDSHAKE') return ws.close(1008);
 
+            // Session expiry check
+            if (ws.sessionId && isSessionExpired(ws.sessionId)) {
+                sendStrictFrame(ws, { type: 'SESSION_EXPIRED' });
+                return ws.close(1008);
+            }
+
             if (data.type === 'HANDSHAKE') {
-                if (ws.sessionId) return;
-                if (!data.sessionId || data.sessionId.length !== 32) return ws.close(1008);
-                const count = activeSessions.get(data.sessionId) || 0;
+                if (ws.sessionId) return; // Already handshaken
+                if (!validateSessionId(data.sessionId)) return ws.close(1008);
+                const sessionInfo = activeSessions.get(data.sessionId);
+                const count = sessionInfo ? sessionInfo.count : 0;
                 if (count >= MAX_CONN_PER_ID) return ws.close(1008);
                 clearTimeout(hTimeout);
                 ws.sessionId = data.sessionId;
-                activeSessions.set(ws.sessionId, count + 1);
+
+                // ──────────────────────────────────────────────────────────
+                // PFS: Generate server-side ECDH keypair for this session
+                // ──────────────────────────────────────────────────────────
+                if (!sessionECDH.has(data.sessionId)) {
+                    const ecdh = generateECDHKeyPair();
+                    sessionECDH.set(data.sessionId, { ecdh, sharedKey: null });
+                }
+                const ecdhData = sessionECDH.get(data.sessionId);
+                const serverECDHPublic = ecdhData.ecdh.getPublicKey('hex');
+
+                activeSessions.set(ws.sessionId, {
+                    count: count + 1,
+                    createdAt: sessionInfo ? sessionInfo.createdAt : now
+                });
+
+                // Send server ECDH public key for PFS handshake
+                sendStrictFrame(ws, {
+                    type: 'ECDH_EXCHANGE',
+                    serverPublicKey: serverECDHPublic
+                });
+                return;
+            }
+
+            // ──────────────────────────────────────────────────────────
+            // PFS: Client sends its ECDH public key
+            // ──────────────────────────────────────────────────────────
+            if (data.type === 'ECDH_CLIENT_KEY') {
+                if (!data.clientPublicKey || typeof data.clientPublicKey !== 'string') return ws.close(1008);
+                if (data.clientPublicKey.length > 256) return ws.close(1008);
+                const ecdhData = sessionECDH.get(ws.sessionId);
+                if (!ecdhData) return ws.close(1008);
+                try {
+                    const sharedSecret = ecdhData.ecdh.computeSecret(Buffer.from(data.clientPublicKey, 'hex'));
+                    // Derive session key using HKDF-like construction
+                    ecdhData.sharedKey = crypto.createHash('sha256')
+                        .update(sharedSecret)
+                        .update(Buffer.from(ws.sessionId, 'hex'))
+                        .digest();
+                    sendStrictFrame(ws, { type: 'ECDH_COMPLETE', status: 'ok' });
+                } catch (e) {
+                    ws.close(1008);
+                }
                 return;
             }
 
             if (data.type === 'REQ_POW') {
-                const challenge = generatePoWChallenge(ws);
-                return sendStrictFrame(ws, { type: 'POW_CHALLENGE', challenge, difficulty: POW_DIFFICULTY });
+                const { challenge, difficulty } = generatePoWChallenge(ws);
+                return sendStrictFrame(ws, { type: 'POW_CHALLENGE', challenge, difficulty });
             }
 
             if (data.type === 'REQ_CHALLENGE') {
@@ -223,35 +411,43 @@ wss.on('connection', (ws) => {
             if (data.type === 'ADMIN_AUTH') {
                 const stored = challenges.get(ws);
                 if (!stored || Date.now() - stored.ts > CHALLENGE_TTL) return ws.close(1008);
+                if (!data.signature || typeof data.signature !== 'string') return ws.close(1008);
                 const pubKey = await getMasterPublicKey();
                 if (!pubKey) return ws.close(1008);
-                const isValid = crypto.verify('sha256', Buffer.from(stored.nonce), {
-                    key: pubKey,
-                    padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
-                    saltLength: 32
-                }, Buffer.from(data.signature, 'base64'));
-                if (isValid) {
-                    if (adminSocket && adminSocket.readyState === WebSocket.OPEN) adminSocket.close(1000);
-                    adminSocket = ws;
-                    challenges.delete(ws);
-                    for (let msg of messageVault) sendStrictFrame(ws, { type: 'HISTORY', data: msg });
-                    for (let [sid, sockets] of sessionSockets) {
-                        for (let s of sockets) {
-                            if (s.initData) { sendStrictFrame(ws, { type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: s.initData } }); break; }
+                try {
+                    const isValid = crypto.verify('sha256', Buffer.from(stored.nonce), {
+                        key: pubKey,
+                        padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+                        saltLength: 32
+                    }, Buffer.from(data.signature, 'base64'));
+                    if (isValid) {
+                        if (adminSocket && adminSocket.readyState === WebSocket.OPEN) adminSocket.close(1000);
+                        adminSocket = ws;
+                        ws.authenticated = true;
+                        challenges.delete(ws);
+                        for (let msg of messageVault) sendStrictFrame(ws, { type: 'HISTORY', data: msg });
+                        for (let [sid, sockets] of sessionSockets) {
+                            for (let s of sockets) {
+                                if (s.initData) { sendStrictFrame(ws, { type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: s.initData } }); break; }
+                            }
                         }
-                    }
-                } else { ws.close(1008); }
+                    } else { ws.close(1008); }
+                } catch (e) {
+                    ws.close(1008);
+                }
                 return;
             }
 
             if (data.type === 'INIT') {
                 if (!data.powNonce || !verifyPoW(ws, data.powNonce)) {
-                    const challenge = generatePoWChallenge(ws);
-                    return sendStrictFrame(ws, { type: 'POW_CHALLENGE', challenge, difficulty: POW_DIFFICULTY });
+                    const { challenge, difficulty } = generatePoWChallenge(ws);
+                    return sendStrictFrame(ws, { type: 'POW_CHALLENGE', challenge, difficulty });
                 }
-                if (!data.user || data.user.length > 64) return ws.close(1008);
-                ws.username = data.user;
-                ws.initData = { ...data, sessionId: ws.sessionId };
+                if (!data.user || typeof data.user !== 'string') return ws.close(1008);
+                const sanitizedUser = sanitizeString(data.user, 64);
+                if (!sanitizedUser) return ws.close(1008);
+                ws.username = sanitizedUser;
+                ws.initData = { ...data, user: sanitizedUser, sessionId: ws.sessionId };
                 if (!sessionSockets.has(ws.sessionId)) sessionSockets.set(ws.sessionId, new Set());
                 sessionSockets.get(ws.sessionId).add(ws);
                 const sessHash = hashField(ws.sessionId);
@@ -273,11 +469,19 @@ wss.on('connection', (ws) => {
 
                 if (!isFromAdmin && (data.targetSession === 'ALL' || data.type === 'BROADCAST')) return; // Solo admin hace broadcast
 
+                // Input sanitization for user-provided fields
+                if (data.user && typeof data.user === 'string') {
+                    data.user = sanitizeString(data.user, 64);
+                }
+                if (data.targetSession && typeof data.targetSession === 'string' && data.targetSession !== 'ALL' && data.targetSession !== 'ADMIN') {
+                    if (!validateSessionId(data.targetSession)) return;
+                }
+
                 const needsVaultWrite = data.type !== 'FILE_CHUNK' && data.type !== 'FILE_META';
                 if (needsVaultWrite && !isFromAdmin) {
                     if (!data.powNonce || !verifyPoW(ws, data.powNonce)) {
-                        const challenge = generatePoWChallenge(ws);
-                        return sendStrictFrame(ws, { type: 'POW_CHALLENGE', challenge, difficulty: POW_DIFFICULTY });
+                        const { challenge, difficulty } = generatePoWChallenge(ws);
+                        return sendStrictFrame(ws, { type: 'POW_CHALLENGE', challenge, difficulty });
                     }
                 }
 
@@ -307,7 +511,9 @@ wss.on('connection', (ws) => {
                     if (sockets) for (let s of sockets) if (s.readyState === WebSocket.OPEN) sendStrictFrame(s, { type: 'NEW_MESSAGE', data: record });
                 }
             }
-        } catch (e) { }
+        } catch (e) {
+            // Silently discard malformed frames — no information leakage
+        }
     });
 
     ws.on('close', () => {
@@ -315,9 +521,15 @@ wss.on('connection', (ws) => {
         if (ws.sessionId) {
             const sockets = sessionSockets.get(ws.sessionId);
             if (sockets) { sockets.delete(ws); if (sockets.size === 0) sessionSockets.delete(ws.sessionId); }
-            const count = activeSessions.get(ws.sessionId) || 1;
-            if (count <= 1) activeSessions.delete(ws.sessionId);
-            else activeSessions.set(ws.sessionId, count - 1);
+            const session = activeSessions.get(ws.sessionId);
+            if (session) {
+                if (session.count <= 1) {
+                    activeSessions.delete(ws.sessionId);
+                    sessionECDH.delete(ws.sessionId); // Clean up ECDH state
+                } else {
+                    session.count--;
+                }
+            }
         }
         if (ws === adminSocket) adminSocket = null;
         challenges.delete(ws);

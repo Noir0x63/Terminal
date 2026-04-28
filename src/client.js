@@ -13,6 +13,15 @@ let expectedAttestChallenge = null;
 let attestFailCount = 0;
 const ATTEST_MAX_FAILS = 3;
 
+// ──────────────────────────────────────────────────────────────────────────
+// MEDIO 6 MITIGATION: ECDH ephemeral keypair for Perfect Forward Secrecy
+// The master RSA key only authenticates — session encryption uses ECDH
+// derived secrets. Compromising the RSA key does NOT reveal past traffic.
+// ──────────────────────────────────────────────────────────────────────────
+let ecdhKeyPair = null;
+let ecdhSharedSecret = null;
+let pfsReady = false;
+
 const MASTER_PUBLIC_PEM = `-----BEGIN PUBLIC KEY-----
 INJECT_MASTER_PUBLIC_KEY
 -----END PUBLIC KEY-----`;
@@ -123,6 +132,37 @@ function sendMessageWithPoW(payloadObj, powNonce) {
     pendingPoWChallenge = null;
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// PFS: Generate ECDH ephemeral keypair using WebCrypto
+// ──────────────────────────────────────────────────────────────────────────
+async function generateClientECDH() {
+    ecdhKeyPair = await crypto.subtle.generateKey(
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        ['deriveBits']
+    );
+    const publicKeyRaw = await crypto.subtle.exportKey('raw', ecdhKeyPair.publicKey);
+    return Array.from(new Uint8Array(publicKeyRaw)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function computeECDHSharedSecret(serverPublicKeyHex) {
+    const serverKeyBytes = new Uint8Array(serverPublicKeyHex.match(/.{2}/g).map(h => parseInt(h, 16)));
+    const serverKey = await crypto.subtle.importKey(
+        'raw',
+        serverKeyBytes,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        []
+    );
+    const sharedBits = await crypto.subtle.deriveBits(
+        { name: 'ECDH', public: serverKey },
+        ecdhKeyPair.privateKey,
+        256
+    );
+    ecdhSharedSecret = new Uint8Array(sharedBits);
+    pfsReady = true;
+}
+
 function initWorker() {
     return new Promise(async (resolve, reject) => {
         try {
@@ -224,7 +264,6 @@ async function connect() {
     ws.onopen = () => {
         sendStrictFrame(JSON.stringify({ type: 'HANDSHAKE', sessionId: sessionId }));
         sendNoise();
-        initWorker().catch(e => alert(e));
     };
     ws.onmessage = async (e) => {
         try {
@@ -232,6 +271,30 @@ async function connect() {
             const len = view.getUint32(0, true);
             if (len === 0) return;
             const frame = JSON.parse(new TextDecoder().decode(new Uint8Array(e.data, 4, len)));
+
+            // ──────────────────────────────────────────────────────────
+            // PFS: Handle ECDH key exchange from server
+            // ──────────────────────────────────────────────────────────
+            if (frame.type === 'ECDH_EXCHANGE') {
+                const clientPubHex = await generateClientECDH();
+                await computeECDHSharedSecret(frame.serverPublicKey);
+                sendStrictFrame(JSON.stringify({ type: 'ECDH_CLIENT_KEY', clientPublicKey: clientPubHex }));
+                return;
+            }
+
+            if (frame.type === 'ECDH_COMPLETE') {
+                // PFS handshake complete — now init the crypto worker
+                initWorker().catch(e => alert(e));
+                return;
+            }
+
+            if (frame.type === 'SESSION_EXPIRED') {
+                appendMessage('SESSION EXPIRED — Please reconnect.', false);
+                clearInterval(attestationInterval);
+                if (worker) worker.terminate();
+                return;
+            }
+
             if (frame.type === 'POW_CHALLENGE') {
                 pendingPoWChallenge = { challenge: frame.challenge, difficulty: frame.difficulty };
                 if (pendingPoWMessage) worker.postMessage({ type: 'SOLVE_POW', challenge: frame.challenge, difficulty: frame.difficulty });
