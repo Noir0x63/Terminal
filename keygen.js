@@ -14,7 +14,7 @@ function askPassphrase(prompt) {
 
 function encryptPrivateKey(pemString, passphrase) {
     const salt = crypto.randomBytes(32);
-    const key = crypto.scryptSync(passphrase, salt, 32, { N: 131072, r: 8, p: 1 });
+    const key = crypto.scryptSync(passphrase, salt, 32, { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(pemString, 'utf8'), cipher.final()]);
@@ -64,7 +64,7 @@ async function main() {
     // Derive and store the admin HMAC secret from the passphrase deterministically
     // This eliminates admin_token.txt entirely (CRÍTICO 2)
     const adminSalt = crypto.randomBytes(32);
-    const adminSecret = crypto.scryptSync(passphrase, Buffer.concat([adminSalt, Buffer.from('ztap:admin:hmac')]), 32, { N: 131072, r: 8, p: 1 });
+    const adminSecret = crypto.scryptSync(passphrase, Buffer.concat([adminSalt, Buffer.from('ztap:admin:hmac')]), 32, { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
     const serverNonce = crypto.randomBytes(32);
     const secretsEnvelope = {
         version: 2,
