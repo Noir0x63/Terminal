@@ -8,6 +8,9 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 
+const messageVault = [];
+const activeSessionIds = new Set(); // Prevención de colisiones y suplantación de UI
+
 const VAULT_FILE = path.join(__dirname, '../vault.json');
 const MAX_VAULT_SIZE = 5000;
 const CHALLENGE_TTL = 30000;

@@ -21,17 +21,6 @@ function base64ToBuffer(b64) {
     return buf.buffer;
 }
 
-async function verifyIntegrity(expectedHash) {
-    if (!expectedHash) return;
-    try {
-        const response = await fetch(self.location.href, { cache: 'no-store' });
-        const code = await response.text();
-        const hashBuffer = await crypto.subtle.digest('SHA-512', new TextEncoder().encode(code));
-        const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-        if (hashHex !== expectedHash) throw new Error('INTEGRITY_FAIL');
-    } catch (e) { if (e.message === 'INTEGRITY_FAIL') throw new Error('SEC_FAULT_0x0'); }
-}
-
 async function deriveKey(token, salt) {
     const enc = new TextEncoder();
     const tokenBuf = enc.encode(token);
@@ -101,7 +90,6 @@ self.onmessage = async (e) => {
     const d = e.data;
     try {
         if (d.type === 'INIT') {
-            await verifyIntegrity(d.expectedHash);
             localKey = await deriveKey(d.token, d.username);
             attestHmacKey = await deriveAttestKey(d.token, d.username);
 
