@@ -89,7 +89,16 @@ if (!fs.existsSync(torOnionDir)) {
     fs.mkdirSync(torOnionDir, { recursive: true });
 }
 
-const tor = spawn(path.join(__dirname, 'Tor', 'tor.exe'), ['-f', path.join(__dirname, 'Tor', 'torrc.txt')]);
+const torExePath = path.join(__dirname, 'Tor', 'tor.exe');
+const torConfigPath = path.join(__dirname, 'Tor', 'torrc.txt');
+
+if (!fs.existsSync(torExePath)) {
+    log('TOR', 'Error: Binario de Tor no encontrado en Tor/tor.exe', THEME.ERROR);
+    log('TOR', 'Por favor, descarga Tor Expert Bundle y coloca tor.exe en la carpeta Tor/', THEME.TEXT);
+    process.exit(1);
+}
+
+const tor = spawn(torExePath, ['-f', torConfigPath]);
 
 tor.stdout.on('data', (data) => {
     const lines = data.toString().split('\n');

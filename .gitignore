@@ -1,9 +1,10 @@
 node_modules/
-package-lock.json
-master_private.pem
-master_public.pem
-ACCESO_ADMIN.txt
-admin_token.txt
-vault.json
 public/
+admin_token.txt
+master_private.pem
+vault.json
+Tor/
+.DS_Store
+*.logic.pem
+ACCESO_ADMIN.txt
 GOLD_HASH.txt
