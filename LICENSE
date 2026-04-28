@@ -1,0 +1,32 @@
+# ZTAP PUBLIC SOURCE LICENSE v1.0
+
+Copyright (c) 2026 Noir0x63. All rights reserved.
+
+## 1. PURPOSE
+This license governs the use of the ZTAP Protocol and Terminal software ("the Software"). The goal is to provide a transparent source code for public auditing and personal privacy use, while reserving all commercial rights to the original author.
+
+## 2. PERMITTED USE (NON-COMMERCIAL)
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction for **PERSONAL, PRIVATE, AND NON-COMMERCIAL** purposes, including:
+*   Viewing and auditing the source code.
+*   Running a private instance of the software for personal use.
+*   Modifying the software for personal, non-distributed use.
+
+## 3. PROHIBITED USE (COMMERCIAL)
+**COMMERCIAL USE IS STRICTLY PROHIBITED.** 
+You may NOT use the Software or any of its components for any commercial purpose without explicit, written permission from the author (Noir0x63). Commercial use includes, but is not limited to:
+*   Selling the software or services derived from it.
+*   Using the software within a for-profit organization.
+*   Integrating the software into a paid product or platform.
+*   Charging for access to an instance of the software.
+
+## 4. REDISTRIBUTION
+Redistribution of the source code or binary forms is permitted provided that:
+*   The original copyright notice and this license remain intact.
+*   The redistribution is entirely non-commercial.
+*   No fees are charged for the redistribution itself.
+
+## 5. DISCLAIMER
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+**Contact for Commercial Licensing:** Noir0x63 (via GitHub)
