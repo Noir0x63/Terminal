@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <title>OPERADOR | DARKNET</title>
+
+    <style>
+        :root {
+            --bg-color: #030303;
+            --text-main: #b3b3b3;
+            --text-high: #e0e0e0;
+            --accent-red: #cc3333;
+            --border-dim: #333333;
+            --sys-font: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: var(--sys-font);
+            line-height: 1.6;
+            font-size: 14px;
+            transition: filter 0.1s ease, opacity 0.1s ease;
+        }
+
+        body.compromised {
+            filter: blur(10px) grayscale(100%);
+            opacity: 0.2;
+            pointer-events: none;
+            user-select: none;
+        }
+
+        ::selection {
+            background-color: var(--text-high);
+            color: var(--bg-color);
+        }
+
+        .container {
+            max-width: 850px;
+            margin: 2rem auto;
+            padding: 2rem;
+            border: 1px solid var(--border-dim);
+        }
+
+        header {
+            border-bottom: 1px dashed var(--border-dim);
+            padding-bottom: 1rem;
+            margin-bottom: 0;
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: var(--text-high);
+            font-weight: normal;
+            letter-spacing: -0.5px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            text-transform: uppercase;
+            margin-bottom: 0.2rem;
+        }
+
+        h2 {
+            font-size: 1.1rem;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            border-left: 3px solid var(--accent-red);
+            padding-left: 10px;
+        }
+
+        h3 {
+            font-size: 1rem;
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-main);
+        }
+
+        p {
+            margin-bottom: 1rem;
+            text-align: justify;
+        }
+
+        ul {
+            list-style-type: square;
+            margin-left: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        .highlight {
+            color: var(--text-high);
+            background-color: #1a1a1a;
+            padding: 0 4px;
+            border: 1px solid #222;
+        }
+
+        .status-alert {
+            color: var(--accent-red);
+        }
+
+        @media print {
+            body {
+                display: none !important;
+            }
+        }
+
+        /* --- TABS --- */
+        .tab-nav {
+            display: flex;
+            border-bottom: 1px solid var(--border-dim);
+            margin-top: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-main);
+            font-family: var(--sys-font);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            padding: 8px 0;
+            cursor: pointer;
+            margin-right: 2rem;
+            margin-bottom: -1px;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-high);
+        }
+
+        .tab-btn.active {
+            color: var(--text-high);
+            border-bottom-color: var(--accent-red);
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        /* --- CODE ARSENAL --- */
+        .code-arsenal {
+            background-color: #080808;
+            border: 1px solid var(--border-dim);
+            padding: 1rem;
+            margin: 1.5rem 0;
+            font-size: 11px;
+            color: #888;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .code-arsenal::before {
+            content: "[ REPOSITORIO_TÉCNICO ]";
+            display: block;
+            font-size: 9px;
+            color: var(--accent-red);
+            margin-bottom: 0.8rem;
+            letter-spacing: 1px;
+        }
+
+        .code-arsenal code {
+            font-family: var(--sys-font);
+            display: block;
+            white-space: pre;
+            color: #b3b3b3;
+        }
+
+        .code-label {
+            font-size: 11px;
+            color: var(--text-high);
+            margin-top: 1rem;
+            display: block;
+            border-bottom: 1px solid #222;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .token-keyword {
+            color: #c586c0;
+        }
+
+        .token-type {
+            color: #569cd6;
+        }
+
+        .token-def {
+            color: #dcdcaa;
+        }
+
+        .token-string {
+            color: #ce9178;
+        }
+
+        .token-num {
+            color: #b5cea8;
+        }
+
+        .token-pre {
+            color: #569cd6;
+        }
+
+        .token-const {
+            color: #4ec9b0;
+        }
+
+        /* --- COLLAPSIBLE (Experiencia) --- */
+        details {
+            border: 1px solid var(--border-dim);
+            margin-bottom: 1rem;
+        }
+
+        summary {
+            padding: 0.8rem 1rem;
+            cursor: pointer;
+            color: var(--text-high);
+            font-size: 0.95rem;
+            list-style: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+
+        summary::-webkit-details-marker {
+            display: none;
+        }
+
+        summary::after {
+            content: '[ + ]';
+            color: var(--accent-red);
+            font-size: 11px;
+            letter-spacing: 1px;
+            flex-shrink: 0;
+            margin-left: 1rem;
+        }
+
+        details[open] summary::after {
+            content: '[ - ]';
+        }
+
+        details[open] summary {
+            border-bottom: 1px dashed var(--border-dim);
+        }
+
+        .detail-body {
+            padding: 1rem 1rem 0.5rem;
+        }
+
+        /* --- CONTACTO --- */
+        .security-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .security-item {
+            border: 1px solid var(--border-dim);
+            padding: 1rem;
+        }
+
+        .security-item h4 {
+            color: var(--accent-red);
+            font-size: 11px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+
+        .security-item p {
+            font-size: 12px;
+            margin-bottom: 0;
+            text-align: left;
+        }
+
+        .chat-container {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px dashed var(--border-dim);
+        }
+
+        #open-terminal-chat {
+            background: none;
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+            padding: 12px 24px;
+            font-family: var(--sys-font);
+            cursor: pointer;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 3px;
+            transition: all 0.2s ease;
+        }
+
+        #open-terminal-chat:hover {
+            background-color: var(--accent-red);
+            color: var(--bg-color);
+            box-shadow: 0 0 15px var(--accent-red);
+        }
+    </style>
+</head>
+
+<body id="terminal-root">
+
+    <div class="container" id="content-container">
+        <header>
+            <h1>INGENIERO DE MALWARE</h1>
+            <p class="highlight">Experto en desarrollo de malware, criptografía, anonimato y evasión de sistemas de
+                seguridad.</p>
+        </header>
+
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="inicio">Inicio</button>
+
+            <button class="tab-btn" data-tab="experiencia">Experiencia</button>
+            <button class="tab-btn" data-tab="contacto">Contacto</button>
+        </nav>
+
+        <!-- ═══ INICIO ═══ -->
+        <div class="tab-panel active" id="tab-inicio">
+            <p>
+                Desarrollo software diseñado para no ser detectado. Construyo infraestructura de comunicación
+                cifrada que opera en anonimato absoluto. Diseño herramientas que neutralizan los sistemas de
+                defensa más avanzados del mercado. No trabajo con productos de terceros: construyo desde cero,
+                a nivel de sistema, donde el software convencional no llega.
+            </p>
+
+            <h2>QUÉ HAGO</h2>
+            <ul>
+                <li>
+                    <span class="highlight">Malware indetectable.</span>
+                    Programo malware que se ejecuta en un sistema sin ser detectado por antivirus ni
+                    sistemas de monitoreo corporativo. Funciona en memoria, no toca disco, no deja rastro.
+                </li>
+                <li>
+                    <span class="highlight">Desactivación de defensas.</span>
+                    Los sistemas de seguridad modernos monitorizan todo lo que ocurre en un equipo.
+                    Los neutralizo para que dejen de registrar actividad sin que nadie se entere.
+                </li>
+                <li>
+                    <span class="highlight">Comunicaciones cifradas y anónimas.</span>
+                    Canales de mensajería que funcionan sobre la red Tor. Cifrado de extremo a extremo AES-GCM-256.
+                    Sin servidores rastreables, sin registros, sin forma de interceptar el contenido.
+                </li>
+                <li>
+                    <span class="highlight">Infraestructura sin identidad.</span>
+                    Servidores que operan sin logs, sin IP pública, sin datos útiles en caso de
+                    incautación física. Solo retransmiten datos cifrados que no pueden descifrar.
+                </li>
+                <li>
+                    <span class="highlight">Ofuscación de código.</span>
+                    Transformo el código fuente para que sea imposible de analizar o reconocer.
+                    Cada compilación produce una versión diferente. No hay dos copias iguales.
+                </li>
+            </ul>
+
+            <h2>MATRIZ DE COMPETENCIAS TÉCNICAS</h2>
+            <ul>
+                <li><span class="highlight">Desarrollo de Malware y Armamento (C/C++):</span> Loaders avanzados,
+                    Syscalls Indirectos (Hell's/Halo's Gate), API Hashing polimórfico, Inyección en memoria, Travesía
+                    del PEB.</li>
+                <li><span class="highlight">Evasión de Defensas (EDR Bypass):</span> In-Memory Patching (ceguera
+                    ETW/AMSI),
+                    Evasión de IAT, Bypass de Hooks de Usuario.</li>
+                <li><span class="highlight">Infraestructura Darknet (C&amp;C / Relay):</span> Nodos Tor Hidden Services
+                    (.onion),
+                    WebSockets asíncronos (Blind Relays), Evasión de Traffic Analysis (Chaffing).</li>
+                <li><span class="highlight">Seguridad Operacional (OpSec) &amp; Criptografía:</span> Cifrado E2EE
+                    (AES-GCM-256), Web Crypto API, RAM Shredding (Anti-forense volátil).</li>
+                <li><span class="highlight">Protección y Ofuscación Polimórfica:</span> Manipulación de AST,
+                    Control Flow Flattening, Inyección de código muerto, Codificación de cadenas (RC4).</li>
+            </ul>
+        </div>
+
+
+
+        <!-- ═══ EXPERIENCIA ═══ -->
+        <div class="tab-panel" id="tab-experiencia">
+            <h2>PROYECTOS Y DESARROLLOS</h2>
+
+            <details>
+                <summary>1. Armamento Evasivo y EDR Bypass <span class="status-alert">[Windows Internals / C/C++]</span></summary>
+                <div class="detail-body">
+                    <p>Desarrollo de un loader de grado avanzado diseñado para ejecutar payloads neutralizando defensas proactivas en entornos Windows de 64 bits.</p>
+                    <ul>
+                        <li><strong>API Hashing y Evasión Estática:</strong> Resolución sin IAT — localiza <code>ntdll.dll</code> vía PEB y resuelve funciones mediante hashing XOR.</li>
+                        <li><strong>Ejecución Directa en Memoria (Halo's Gate):</strong> Extracción dinámica de SSNs desde opcodes mapeados. Detecta hooks de EDR y calcula SSN en funciones vecinas limpias.</li>
+                        <li><strong>Bypass de Telemetría (Indirect Syscalls &amp; ETW Patching):</strong> Trampolines en <code>ntdll.dll</code>. Parche en memoria con <code>RET (0xC3)</code> en rutinas ETW — ceguera total del endpoint.</li>
+                        <li><strong>Secuestro de Sesión (Locking Ops):</strong> Escritorio virtual aislado (<code>SwitchDesktop</code>) + hooks globales (<code>WH_KEYBOARD_LL</code>).</li>
+                    </ul>
+                </div>
+            </details>
+
+            <details>
+                <summary>2. Terminal — Comunicación Clandestina <span class="status-alert">[Darknet Infrastructure]</span></summary>
+                <div class="detail-body">
+                    <p>Arquitectura de retransmisión Zero-Knowledge sobre la red Tor. Canales efímeros y no rastreables.</p>
+                    <ul>
+                        <li><strong>Blind Relay Asíncrono:</strong> Opera puramente en memoria — incapaz de persistir datos o descifrar tráfico. Inmune a incautación.</li>
+                        <li><strong>Cripto-Motor Autónomo:</strong> E2EE con AES-GCM-256 / PBKDF2. IV únicos por paquete. Forward Secrecy estricto.</li>
+                        <li><strong>RAM Shredding:</strong> Sanitización inmediata de variables sensibles — mitigación forense vía volcados de memoria.</li>
+                        <li><strong>Mitigación de Traffic Analysis:</strong> Paquetes Chaffing estocásticos para alterar huella de tráfico.</li>
+                        <li><strong>Ofuscación Polimórfica:</strong> AST manipulation, control flow flattening, junk code injection. Huella única por despliegue.</li>
+                    </ul>
+                </div>
+            </details>
+        </div>
+
+        <!-- ═══ CONTACTO ═══ -->
+        <div class="tab-panel" id="tab-contacto">
+            <h2>¿POR QUÉ TERMINAL ES SEGURO?</h2>
+            <p>
+                Terminal es un canal de comunicación privado diseñado para entornos de alto riesgo. Construido
+                con cifrado de grado militar, anonimato de red completo y sin registro de actividad. Si necesitas
+                contactarme, este es el único canal que utilizo.
+            </p>
+            <p>
+                No requiere instalación. No deja rastro.
+            </p>
+
+            <div class="chat-container">
+                <p style="font-size:11px;color:#555;margin-bottom:1.2rem;letter-spacing:1px;">
+                    * Requiere JavaScript habilitado. Sin él, el cifrado y el anonimato no pueden garantizarse.
+                </p>
+                <button id="open-terminal-chat">
+                    [ ACCEDER_A_TERMINAL ]
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        (function () {
+            'use strict';
+
+            // Tab switching
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabPanels = document.querySelectorAll('.tab-panel');
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabPanels.forEach(p => p.classList.remove('active'));
+                    btn.classList.add('active');
+                    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+                });
+            });
+
+            // Security
+            window.addEventListener('blur', () => { document.body.classList.add('compromised'); });
+            window.addEventListener('focus', () => { document.body.classList.remove('compromised'); });
+
+            document.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'F12' || e.keyCode === 123) { e.preventDefault(); }
+                if (e.ctrlKey && (e.key === 'u' || e.key === 'U' ||
+                    (e.shiftKey && (e.key === 'i' || e.key === 'I' || e.key === 'j' || e.key === 'J')))) {
+                    e.preventDefault();
+                }
+            });
+
+            setInterval(() => {
+                console.clear();
+                console.log("%c[!] ACCESO NO AUTORIZADO A CONSOLA DETECTADO", "color: red; font-size: 20px;");
+            }, 2000);
+
+            const chatBtn = document.getElementById('open-terminal-chat');
+            if (chatBtn) {
+                chatBtn.addEventListener('click', () => {
+                    window.location.href = '/terminal';
+                });
+            }
+
+        })();
+    </script>
+</body>
+
+</html>

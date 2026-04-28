@@ -1,0 +1,9 @@
+node_modules/
+package-lock.json
+master_private.pem
+master_public.pem
+ACCESO_ADMIN.txt
+admin_token.txt
+vault.json
+public/
+GOLD_HASH.txt
