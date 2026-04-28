@@ -257,7 +257,10 @@ wss.on('connection', (ws) => {
                 const sessHash = hashField(ws.sessionId);
                 const history = messageVault.filter(m => m.content.s === sessHash || m.content.ts === sessHash);
                 history.forEach(m => sendStrictFrame(ws, { type: 'HISTORY', data: m }));
-                if (adminSocket) sendStrictFrame(adminSocket, { type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: ws.initData } });
+                if (adminSocket) {
+                    const adminInit = { ...ws.initData, sessionHash: hashField(ws.sessionId) };
+                    sendStrictFrame(adminSocket, { type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: adminInit } });
+                }
                 return;
             }
 
@@ -290,7 +293,10 @@ wss.on('connection', (ws) => {
                     await saveVault();
                 }
 
-                if (adminSocket && !isFromAdmin) sendStrictFrame(adminSocket, { type: 'NEW_MESSAGE', data: record });
+                if (adminSocket && !isFromAdmin) {
+                    const adminRecord = { ...record, content: { ...record.content, s: ws.sessionId } };
+                    sendStrictFrame(adminSocket, { type: 'NEW_MESSAGE', data: adminRecord });
+                }
 
                 if (data.targetSession === 'ALL' || data.type === 'BROADCAST') {
                     for (let [, sockets] of sessionSockets) {

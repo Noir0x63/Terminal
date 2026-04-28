@@ -2,6 +2,7 @@ let ws = null;
 let masterPrivateKey = null;
 let masterSignKey = null;
 let users = {}; // sessionId -> data
+let hashToId = {}; // sessionHash -> sessionId
 let selectedSessionId = null;
 let messages = [];
 let sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
@@ -120,11 +121,13 @@ function connectAdmin() {
                             receiveCounter: 0,
                             lastInitTs: initData.ts
                         };
+                        if (msg.sessionHash) hashToId[msg.sessionHash] = sessId;
                         updateUserList();
                     } catch (err) { }
                 } else if (msg.type === 'ASYNC_MSG') {
                     try {
-                        const sessId = msg.s;
+                        const sessHash = msg.s;
+                        const sessId = hashToId[sessHash] || sessHash;
                         const u = users[sessId];
                         if (!u || !u.symmetricKey) return;
 
