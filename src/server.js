@@ -92,6 +92,23 @@ async function saveVault() {
     try { await fs.writeFile(VAULT_FILE, JSON.stringify(messageVault, null, 2)); } catch (e) { }
 }
 
+// Ciclo de Autolimpieza: Purga el vault cada 24 horas para garantizar efimeridad.
+setInterval(async () => {
+    messageVault = [];
+    await saveVault();
+    console.log('[SYSTEM] Purga automática de 24 horas completada.');
+    if (adminSocket && adminSocket.readyState === 1) {
+        try {
+            const bytes = Buffer.from(JSON.stringify({ type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: { type: 'BROADCAST', user: 'SYSTEM', payload: 'VAULT_PURGE_SUCCESSFUL' } } }), 'utf8');
+            const frame = Buffer.alloc(4096);
+            crypto.randomFillSync(frame);
+            frame.writeUint32LE(bytes.length, 0);
+            bytes.copy(frame, 4);
+            adminSocket.send(frame);
+        } catch (e) { }
+    }
+}, 86400000);
+
 function hashField(val) {
     const salt = HMAC_SECRET ? crypto.createHash('sha256').update(HMAC_SECRET).digest('hex').slice(0, 16) : 'static_salt';
     return crypto.createHash('sha256').update(String(val) + salt).digest('hex');
