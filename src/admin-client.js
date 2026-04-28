@@ -119,6 +119,7 @@ function connectAdmin() {
                             username: initData.username,
                             symmetricKey: await deriveKey(initData.token, initData.username),
                             receiveCounter: 0,
+                            sendCounter: 0, // Añadido para consistencia con el Worker
                             lastInitTs: initData.ts
                         };
                         if (msg.sessionHash) hashToId[msg.sessionHash] = sessId;
@@ -187,7 +188,13 @@ document.getElementById('send-btn').onclick = async () => {
     if (!u || !u.symmetricKey) return;
     input.value = '';
     messages.push({ from: 'ADMIN', to: selectedSessionId, text });
-    const encBuf = await encryptAesGcm(new TextEncoder().encode(JSON.stringify({ user: 'ADMIN', text })), u.symmetricKey);
+    
+    // Incrementar contador para anti-replay y compatibilidad con el Worker
+    u.sendCounter++;
+    const payload = JSON.stringify({ user: 'ADMIN', text });
+    const wrapped = JSON.stringify({ p: payload, c: u.sendCounter, t: Date.now() });
+    
+    const encBuf = await encryptAesGcm(new TextEncoder().encode(wrapped), u.symmetricKey);
     sendStrictFrame({ type: 'SERVER_MSG', targetSession: selectedSessionId, payload: bufferToBase64(encBuf) });
     renderMessages();
 };
