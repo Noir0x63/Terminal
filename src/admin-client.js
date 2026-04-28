@@ -70,7 +70,7 @@ function sendStrictFrame(obj) {
     const bytes = new TextEncoder().encode(JSON.stringify(obj));
     if (bytes.length > 4092) return;
     const frame = new Uint8Array(4096);
-    crypto.randomFillSync(frame);
+    window.crypto.getRandomValues(frame);
     new DataView(frame.buffer).setUint32(0, bytes.length, true);
     frame.set(bytes, 4);
     ws.send(frame);

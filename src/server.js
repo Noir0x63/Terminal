@@ -131,7 +131,7 @@ const wss = new WebSocket.Server({ noServer: true });
 app.use(cors());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 app.use((req, res, next) => {
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss: blob:; img-src 'self' data:; frame-ancestors 'none';");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss: blob: data:; img-src 'self' data:; media-src 'self' data:; frame-ancestors 'none';");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     next();
