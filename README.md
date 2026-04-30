@@ -1,10 +1,11 @@
-# 🗲 ZTAP V3.0: Zero-Knowledge Terminal Architecture & Protocol
+# 🗲 ZTAP V3.1: Zero-Knowledge Terminal Architecture & Protocol
 
-[![Security: IRONCLAD v3.0](https://img.shields.io/badge/Security-IRONCLAD_v3.0-brightgreen.svg)](https://github.com/Noir0x63/Terminal)
+[![Security: IRONCLAD v3.1](https://img.shields.io/badge/Security-IRONCLAD_v3.1-brightgreen.svg)](https://github.com/Noir0x63/Terminal)
 [![Encryption: AES--256--GCM](https://img.shields.io/badge/Encryption-AES--256--GCM-blue.svg)]()
 [![PFS: ECDH--P256](https://img.shields.io/badge/PFS-ECDH--P256-blue.svg)]()
 [![Network: Tor--Only](https://img.shields.io/badge/Network-Tor--Only-blueviolet.svg)]()
 [![Keys: Encrypted--At--Rest](https://img.shields.io/badge/Keys-Encrypted--At--Rest-critical.svg)]()
+[![Audit: Passed](https://img.shields.io/badge/Audit-Passed_(5%2F5_Fixed)-green.svg)]()
 
 **ZTAP (Zero-Knowledge Terminal Architecture & Protocol)** is a high-security, volatile communication framework designed to operate over untrusted infrastructure (Tor Hidden Services, Blind Relays, or Compromised Nodes). 
 
@@ -48,7 +49,7 @@ The protocol implements a multi-layered encryption stack using the native **WebC
 *   **Perfect Forward Secrecy:** ECDH (P-256) ephemeral keypair per session — compromising the master RSA key does **NOT** reveal historical traffic.
 *   **Stream Security:** AES-256-GCM with unique Initialization Vectors (IV) per frame.
 *   **Signature Scheme:** **RSA-PSS** (Probabilistic Signature Scheme) with 32-byte salt for identity verification (Admin Command & Control).
-*   **Identity Derivation:** PBKDF2-HMAC-SHA256 with **600,000 iterations** to ensure brute-force resistance.
+*   **Identity Derivation:** PBKDF2-HMAC-SHA256 with **600,000 iterations** and **high-entropy session salt** (32 bytes CSPRNG) to ensure brute-force resistance.
 
 ### 2. Encrypted-At-Rest Key Management
 All cryptographic secrets are protected at rest — plaintext key material **never** persists on disk.
@@ -68,6 +69,7 @@ ZTAP is designed for **Zero-Persistence**.
 *   **Memory Hygiene:** TypedArrays (`Uint8Array`) are used for plaintext processing and are sanitized using `.fill(0)` and CSPRNG noise injection immediately after use.
 *   **Automatic 24h Purge:** The server implements a mandatory cleanup cycle that wipes the message vault (RAM and Disk) every 24 hours, ensuring ephemerality.
 *   **Zero-Store Keys:** Session tokens and private keys never touch the server's disk; they reside only in the volatility of the browser's memory and the server's RAM during transport.
+*   **EXIF/IPTC Stripping:** JPEG files sent via the admin panel have APP1 (EXIF) and APP13 (IPTC) metadata stripped before encryption — preventing de-anonymization via GPS, device info, or software fingerprints.
 
 ### 5. Session Governance & Access Control
 *   **Session Expiry:** All sessions expire after 1 hour, requiring re-authentication.
@@ -75,6 +77,7 @@ ZTAP is designed for **Zero-Persistence**.
 *   **IP Rate Limiting:** Max 30 connections per minute per IP with exponential backoff bans (up to 10 minutes).
 *   **Admin Route Rotation:** Hourly HMAC-derived admin paths with serverNonce entropy — routes cannot be pre-calculated even with leaked secrets.
 *   **Input Sanitization:** All user-provided fields are validated and stripped of control characters before processing.
+*   **Vault Write Mutex:** Promise-chained serialization prevents race conditions and JSON corruption under concurrent write pressure.
 
 ---
 
@@ -82,8 +85,9 @@ ZTAP is designed for **Zero-Persistence**.
 The client-side logic is hardened through integrity verification rather than security-through-obscurity:
 *   **Kerckhoffs' Principle:** Obfuscation has been **removed** — security resides in the keys, not in hiding the algorithm. Code is minified, not obfuscated.
 *   **Worker Integrity:** A `GOLD_HASH` (SHA-512) validation ensures the Web Worker hasn't been tampered with in transit (pre-spawning verification).
-*   **Worker Attestation:** Periodic HMAC-based challenge-response attestation ensures runtime integrity of the cryptographic worker.
+*   **Worker Attestation:** **Server-side** HMAC-based challenge-response attestation ensures runtime integrity of the cryptographic worker. The server — not the client — dictates and verifies attestation.
 *   **Zero Dependencies for Crypto:** All cryptographic operations use the native WebCrypto API — no third-party libraries in the critical path.
+*   **Framework Hardening:** `X-Powered-By` disabled, ETags suppressed, global error handler prevents path disclosure.
 
 ---
 
@@ -114,6 +118,22 @@ sequenceDiagram
 
 ---
 
+## 🔍 Audit Results (v3.1)
+
+A formal offensive cryptographic audit was performed under a **Zero Trust** mentality. All 5 findings have been remediated:
+
+| # | Finding | Severity | CVSS | Status |
+|---|---------|----------|------|--------|
+| 1 | **Plaintext Token Leakage** — Token sent in cleartext in INIT/ASYNC_MSG frames | CRÍTICO | 9.8 | ✅ FIXED |
+| 2 | **Weak Key Derivation Salt** — Username used as PBKDF2 salt (low entropy) | ALTO | 7.4 | ✅ FIXED |
+| 3 | **Client-Side Attestation Flaw** — Client self-validated attestation challenges | CRÍTICO | 8.5 | ✅ FIXED |
+| 4 | **EXIF Metadata Leakage** — JPEG files sent without stripping EXIF/IPTC | ALTO | 6.8 | ✅ FIXED |
+| 5 | **Vault Race Condition** — Concurrent `fs.writeFile` calls corrupt `vault.json` | MEDIO | — | ✅ FIXED |
+
+> Full report: [`Reportes de auditoria/reporte.tex`](Reportes%20de%20auditoria/reporte.tex)
+
+---
+
 ## 🚀 Deployment (Onion Service)
 The system is optimized for **Tor Hidden Services**:
 1.  **Launcher:** Automates the instantiation of the local Tor binary and the Node.js relay.
@@ -131,9 +151,13 @@ node keygen.js
 
 # 3. Launch (builds, purges legacy files, starts server + Tor)
 node launcher.js
+# Or on Windows: run.bat
 
 # 4. Access admin panel at the printed HMAC route
 #    Upload master_private.enc + enter passphrase
+
+# 5. Shutdown (Windows)
+# off.bat
 ```
 
 > ⚠️ **Remember your passphrase.** There is no recovery mechanism without it.
@@ -147,12 +171,23 @@ node launcher.js
 | **Key Exchange** | RSA-4096 + ECDH P-256 | NIST SP 800-56A |
 | **Stream Cipher** | AES-256-GCM | NIST SP 800-38D |
 | **Key Derivation** | PBKDF2 (600k) + scrypt | OWASP 2025 |
+| **KDF Salt** | sessionId (32 bytes CSPRNG) | High-entropy |
 | **Signatures** | RSA-PSS (32-byte salt) | PKCS#1 v2.1 |
 | **Key Storage** | AES-256-GCM + PBKDF2 (600k) | Encrypted-at-rest |
 | **Admin Auth** | Browser-side decrypt + RSA-PSS C/R | Zero-trust |
+| **Attestation** | Server-side HMAC + timingSafeEqual | Anti-tamper |
 | **Forward Secrecy** | ECDH ephemeral per session | PFS compliant |
 | **Anti-DoS** | Adaptive PoW (16–24 bit) | Dynamic scaling |
+| **Anti-Forensics** | EXIF/IPTC strip + 24h vault purge | Zero-persistence |
 | **Transport** | Tor Hidden Service | Onion routing |
+
+---
+
+## ⚖️ License
+
+**ZTAP Public Source License v1.1 (Strict)** — See [LICENSE](LICENSE).
+
+Individual, non-commercial use only. Commercial, SaaS, and corporate use strictly prohibited without explicit written permission.
 
 ---
 
