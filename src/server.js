@@ -150,8 +150,18 @@ async function loadVault() {
 }
 loadVault();
 
-async function saveVault() {
-    try { await fs.writeFile(VAULT_FILE, JSON.stringify(messageVault, null, 2)); } catch (e) { }
+// ──────────────────────────────────────────────────────────────────────────
+// AUDIT FIX 5: Mutex-protected vault writes (prevents race condition / JSON corruption)
+// Multiple concurrent async writeFile calls could corrupt vault.json.
+// Promise chaining ensures serialized, atomic writes.
+// ──────────────────────────────────────────────────────────────────────────
+let vaultMutex = Promise.resolve();
+
+function saveVault() {
+    vaultMutex = vaultMutex.then(async () => {
+        try { await fs.writeFile(VAULT_FILE, JSON.stringify(messageVault, null, 2)); } catch (e) { }
+    }).catch(() => {});
+    return vaultMutex;
 }
 
 // Ciclo de Autolimpieza: Purga el vault cada 24 horas para garantizar efimeridad.
@@ -226,6 +236,11 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
+// ──────────────────────────────────────────────────────────────────────────
+// HARDENING: Framework fingerprint suppression + ETag disable
+// ──────────────────────────────────────────────────────────────────────────
+app.disable('x-powered-by');
+app.set('etag', false);
 app.use(cors());
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -249,6 +264,13 @@ app.get('/:token', (req, res, next) => {
     next();
 });
 app.use(express.static(path.join(__dirname, '../public')));
+
+// ──────────────────────────────────────────────────────────────────────────
+// HARDENING: Global error handler — prevents path disclosure on 500 errors
+// ──────────────────────────────────────────────────────────────────────────
+app.use((err, req, res, next) => {
+    res.status(500).end();
+});
 
 server.on('upgrade', (request, socket, head) => {
     const ip = request.socket.remoteAddress;
