@@ -51,9 +51,35 @@ const pemContents = masterPublicPem
 // NOT obfuscated. All secrets are injected at build time as before.
 // ──────────────────────────────────────────────────────────────────────────
 function minifyJS(code) {
-    return code
-        .replace(/\/\/.*$/gm, '')                  // Remove single-line comments
-        .replace(/\/\*[\s\S]*?\*\//g, '')           // Remove multi-line comments
+    // String-aware comment stripper: skips // and /* */ inside quotes/backticks
+    let result = '';
+    let i = 0;
+    while (i < code.length) {
+        // String literals: skip through without modifying
+        if (code[i] === "'" || code[i] === '"' || code[i] === '`') {
+            const quote = code[i];
+            result += code[i++];
+            while (i < code.length && code[i] !== quote) {
+                if (code[i] === '\\') { result += code[i++]; } // skip escaped char
+                if (i < code.length) result += code[i++];
+            }
+            if (i < code.length) result += code[i++]; // closing quote
+        }
+        // Single-line comment (not inside string)
+        else if (code[i] === '/' && code[i + 1] === '/') {
+            while (i < code.length && code[i] !== '\n') i++;
+        }
+        // Multi-line comment
+        else if (code[i] === '/' && code[i + 1] === '*') {
+            i += 2;
+            while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+            i += 2;
+        }
+        else {
+            result += code[i++];
+        }
+    }
+    return result
         .replace(/^\s+/gm, '')                      // Remove leading whitespace
         .replace(/\n{2,}/g, '\n')                    // Collapse blank lines
         .trim();
