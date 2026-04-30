@@ -314,6 +314,11 @@ wss.on('connection', (ws) => {
     ws.sessionId = null;
     ws.lastBroadcast = 0;
     ws.authenticated = false;
+    ws.attestKey = null;
+    ws.attestChallenge = null;
+    ws.attestTimeout = null;
+    ws.attestFailCount = 0;
+    ws.attestInterval = null;
 
     const hTimeout = setTimeout(() => { if (!ws.sessionId) ws.close(1008); }, HANDSHAKE_TIMEOUT);
 
@@ -457,6 +462,57 @@ wss.on('connection', (ws) => {
                     const adminInit = { ...ws.initData, sessionHash: hashField(ws.sessionId) };
                     sendStrictFrame(adminSocket, { type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: adminInit } });
                 }
+
+                // ──────────────────────────────────────────────────────────
+                // AUDIT FIX 3: Server-side attestation — store key and start
+                // periodic challenge loop. Client can no longer self-validate.
+                // ──────────────────────────────────────────────────────────
+                if (data.attestKey && typeof data.attestKey === 'string' && data.attestKey.length <= 256) {
+                    ws.attestKey = Buffer.from(data.attestKey, 'base64');
+                    ws.attestInterval = setInterval(() => {
+                        if (ws.readyState !== WebSocket.OPEN) {
+                            clearInterval(ws.attestInterval);
+                            return;
+                        }
+                        const challenge = crypto.randomBytes(16).toString('hex');
+                        ws.attestChallenge = challenge;
+                        ws.attestTimeout = setTimeout(() => {
+                            ws.attestFailCount++;
+                            ws.attestChallenge = null;
+                            if (ws.attestFailCount >= 3) {
+                                try { ws.close(1008, 'Attestation timeout'); } catch (e) { }
+                            }
+                        }, 5000);
+                        sendStrictFrame(ws, { type: 'ATTEST_CHALLENGE', challenge });
+                    }, 30000);
+                }
+                return;
+            }
+
+            // ──────────────────────────────────────────────────────────
+            // AUDIT FIX 3: Server verifies attestation HMAC response
+            // Uses timingSafeEqual to prevent timing side-channels
+            // ──────────────────────────────────────────────────────────
+            if (data.type === 'ATTEST_RESPONSE') {
+                if (!ws.attestKey || !ws.attestChallenge) return;
+                if (!data.signature || typeof data.signature !== 'string') return ws.close(1008);
+                try {
+                    const expectedSig = crypto.createHmac('sha256', ws.attestKey)
+                        .update(ws.attestChallenge).digest();
+                    const actualSig = Buffer.from(data.signature, 'base64');
+                    if (expectedSig.length !== actualSig.length ||
+                        !crypto.timingSafeEqual(expectedSig, actualSig)) {
+                        ws.attestFailCount++;
+                        if (ws.attestFailCount >= 3) return ws.close(1008, 'Attestation failed');
+                    } else {
+                        clearTimeout(ws.attestTimeout);
+                        ws.attestChallenge = null;
+                        ws.attestFailCount = 0;
+                    }
+                } catch (e) {
+                    ws.attestFailCount++;
+                    if (ws.attestFailCount >= 3) return ws.close(1008);
+                }
                 return;
             }
 
@@ -518,6 +574,8 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         clearTimeout(hTimeout);
+        if (ws.attestInterval) clearInterval(ws.attestInterval);
+        if (ws.attestTimeout) clearTimeout(ws.attestTimeout);
         if (ws.sessionId) {
             const sockets = sessionSockets.get(ws.sessionId);
             if (sockets) { sockets.delete(ws); if (sockets.size === 0) sessionSockets.delete(ws.sessionId); }

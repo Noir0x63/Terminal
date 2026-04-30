@@ -190,7 +190,8 @@ function connectAdmin() {
 
                         users[sessId] = {
                             username: initData.username,
-                            symmetricKey: await deriveKey(initData.token, initData.username),
+                            // AUDIT FIX 2: Salt changed from username to sessionId (high entropy)
+                            symmetricKey: await deriveKey(initData.token, initData.sessionId || sessId),
                             receiveCounter: 0,
                             sendCounter: 0, // Añadido para consistencia con el Worker
                             lastInitTs: initData.ts
