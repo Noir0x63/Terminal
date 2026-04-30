@@ -1,67 +1,56 @@
 @echo off
-title TERMINAL - TOR SERVICE LAUNCHER
+setlocal
+title TERMINAL - ZTAP IRONCLAD
 cls
+
 echo ====================================================
-echo             TERMINAL - BUILD ^& LAUNCH
+echo             TERMINAL - ZTAP PROTOCOL
+echo              IRONCLAD v3.1 (HARDENED)
 echo ====================================================
 echo.
 
-:: -1. Limpiar procesos anteriores
-echo [0/2] Limpiando procesos en puerto 3000...
-for /f "tokens=5" %%a in ('netstat -aon ^| find ":3000" ^| find "LISTENING"') do (
-    echo Cerrando instancia previa (PID %%a)...
-    taskkill /F /PID %%a >nul 2>&1
-)
+:: Asegurarse de estar en el directorio del script
+cd /d "%~dp0"
 
-:: 0. Verificar Node.js
+:: 0. Limpieza forzada de colisiones
+echo [0/3] Liberando recursos y puertos...
+taskkill /f /im node.exe >nul 2>&1
+taskkill /f /im tor.exe >nul 2>&1
+
+:: 1. Verificar Node.js
+echo [1/3] Verificando entorno Node.js...
 node -v >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ERROR: Node.js no esta instalado o no se encuentra en el PATH.
-    echo Por favor, instala Node.js desde https://nodejs.org/
     echo.
+    echo [ERROR] Node.js no detectado en el sistema.
+    echo Descargalo en: https://nodejs.org/
     pause
     exit /b
 )
 
-:: 1. Verificar dependencias
-echo [1/2] Verificando dependencias...
-if not exist node_modules (
-    echo Instalando dependencias necesarias...
+:: 2. Verificar Dependencias
+echo [2/3] Validando integridad de modulos...
+if not exist "node_modules\ws" (
+    echo Modulos faltantes. Instalando dependencias...
     call npm install
-    if errorlevel 1 (
+    if %errorlevel% neq 0 (
         echo.
-        echo ERROR: No se pudieron instalar las dependencias. 
-        echo Revisa tu conexion a internet o los permisos de la carpeta.
+        echo [ERROR] Fallo al instalar dependencias de NPM.
         pause
         exit /b
     )
-) else (
-    echo Dependencias encontradas.
 )
 
-:: 2. Verificar Tor
-if not exist "Tor\tor.exe" (
-    echo.
-    echo ERROR: No se encuentra 'Tor\tor.exe'.
-    echo Asegurate de que la carpeta 'Tor' contiene el ejecutable de Tor.
-    pause
-    exit /b
-)
-
-echo.
-echo [2/2] Iniciando sistema completo...
+:: 3. Lanzamiento
+echo [3/3] Iniciando launcher...
 echo.
 
-:: Ejecutar el launcher
 node launcher.js
 
-:: Si llegamos aqui es porque el proceso termino
 if %errorlevel% neq 0 (
     echo.
-    echo ERROR: El sistema se ha detenido con el codigo: %errorlevel%
-) else (
-    echo.
-    echo El sistema se ha cerrado correctamente.
+    echo [CRASH] El sistema se detuvo inesperadamente (Codigo: %errorlevel%)
+    pause
 )
 
-pause
+endlocal
