@@ -293,9 +293,69 @@ document.getElementById('zip-upload').onchange = async (e) => {
     e.target.value = '';
 };
 
+// ──────────────────────────────────────────────────────────────────────────
+// AUDIT FIX 4: Strip EXIF (APP1) and IPTC (APP13) metadata from JPEG files
+// Prevents de-anonymization via GPS, device info, software fingerprints.
+// Sanitization occurs BEFORE E2EE encryption to respect the Blind Relay model.
+// ──────────────────────────────────────────────────────────────────────────
+function stripExifData(arrayBuffer) {
+    const view = new DataView(arrayBuffer);
+    // Verify JPEG SOI marker (0xFFD8)
+    if (arrayBuffer.byteLength < 4 || view.getUint8(0) !== 0xFF || view.getUint8(1) !== 0xD8) return arrayBuffer;
+
+    const chunks = [];
+    chunks.push(new Uint8Array(arrayBuffer, 0, 2)); // SOI marker
+
+    let offset = 2;
+    while (offset < arrayBuffer.byteLength - 1) {
+        if (view.getUint8(offset) !== 0xFF) break;
+        const marker = view.getUint8(offset + 1);
+
+        // SOS (Start of Scan) — rest is compressed image data, keep everything
+        if (marker === 0xDA) {
+            chunks.push(new Uint8Array(arrayBuffer, offset));
+            break;
+        }
+
+        // EOI (End of Image)
+        if (marker === 0xD9) {
+            chunks.push(new Uint8Array(arrayBuffer, offset, 2));
+            break;
+        }
+
+        // Segment length (big-endian, includes the 2 length bytes)
+        if (offset + 3 >= arrayBuffer.byteLength) break;
+        const segLen = view.getUint16(offset + 2);
+
+        // Skip APP1 (0xE1 = EXIF/XMP) and APP13 (0xED = IPTC/Photoshop)
+        if (marker === 0xE1 || marker === 0xED) {
+            offset += 2 + segLen;
+            continue;
+        }
+
+        // Keep all other segments
+        chunks.push(new Uint8Array(arrayBuffer, offset, 2 + segLen));
+        offset += 2 + segLen;
+    }
+
+    // Concatenate clean chunks
+    let totalLen = 0;
+    for (const c of chunks) totalLen += c.byteLength;
+    const result = new Uint8Array(totalLen);
+    let pos = 0;
+    for (const c of chunks) { result.set(c, pos); pos += c.byteLength; }
+    return result.buffer;
+}
+
 async function sendFileToUser(file, targetSession, symmetricKey) {
     const CHUNK_SIZE = 2048;
-    const arrayBuffer = await file.arrayBuffer();
+    let arrayBuffer = await file.arrayBuffer();
+
+    // AUDIT FIX 4: Strip EXIF/IPTC metadata from JPEG files (anti-forensics)
+    if (/\.(jpe?g)$/i.test(file.name)) {
+        arrayBuffer = stripExifData(arrayBuffer);
+    }
+
     const totalBytes = arrayBuffer.byteLength;
     const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE) || 1;
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
