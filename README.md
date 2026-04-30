@@ -1,6 +1,6 @@
-# 🗲 ZTAP V3.1: Zero-Knowledge Terminal Architecture & Protocol
+# 🗲 E2EE-ZTAP-Protocol: Zero-Knowledge Terminal Architecture & Protocol
 
-[![Security: IRONCLAD v3.1](https://img.shields.io/badge/Security-IRONCLAD_v3.1-brightgreen.svg)](https://github.com/Noir0x63/Terminal)
+[![Security: IRONCLAD v3.1](https://img.shields.io/badge/Security-IRONCLAD_v3.1-brightgreen.svg)](https://github.com/Noir0x63/E2EE-ZTAP-Protocol)
 [![Encryption: AES--256--GCM](https://img.shields.io/badge/Encryption-AES--256--GCM-blue.svg)]()
 [![PFS: ECDH--P256](https://img.shields.io/badge/PFS-ECDH--P256-blue.svg)]()
 [![Network: Tor--Only](https://img.shields.io/badge/Network-Tor--Only-blueviolet.svg)]()
