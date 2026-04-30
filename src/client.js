@@ -84,39 +84,12 @@ function handleFileDownload(filename, blob) {
     list.scrollTop = list.scrollHeight;
 }
 
-let attestHmacKey = null;
-
-async function deriveAttestVerifyKey(token, salt) {
-    const enc = new TextEncoder();
-    const saltBuf = enc.encode(salt + ":attest");
-    const base = await crypto.subtle.importKey('raw', enc.encode(token), 'PBKDF2', false, ['deriveKey']);
-    return crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt: saltBuf, iterations: 100000, hash: 'SHA-256' },
-        base,
-        { name: 'HMAC', hash: 'SHA-256', length: 256 },
-        false,
-        ['verify']
-    );
-}
-
-function startAttestationLoop() {
-    attestationInterval = setInterval(async () => {
-        if (!worker) return;
-        const challenge = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-        expectedAttestChallenge = challenge;
-        worker.postMessage({ type: 'ATTEST_CHALLENGE', challenge });
-        setTimeout(() => {
-            if (expectedAttestChallenge === challenge) {
-                attestFailCount++;
-                expectedAttestChallenge = null;
-                if (attestFailCount >= ATTEST_MAX_FAILS) {
-                    if (ws) ws.close(1008);
-                    worker.terminate();
-                }
-            }
-        }, 5000);
-    }, 30000);
-}
+// ──────────────────────────────────────────────────────────────────────────
+// AUDIT FIX 3: Attestation moved to SERVER-SIDE verification
+// The client no longer self-validates — it forwards challenges/responses
+// between the server and the worker. The server holds the attestation key
+// and disconnects on verification failure.
+// ──────────────────────────────────────────────────────────────────────────
 
 function base64ToBuffer(b64) {
     const bin = atob(b64);
@@ -174,7 +147,7 @@ function initWorker() {
             // 2. Verificar Integridad Real (Pre-spawning)
             const hashBuffer = await crypto.subtle.digest('SHA-512', arrayBuffer);
             const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-            
+
             const expectedHash = 'INJECT_EXPECTED_HASH';
             if (hashHex !== expectedHash) {
                 console.error('%c[SECURITY] VIOLACIÓN DE INTEGRIDAD DETECTADA', 'color: red; font-weight: bold;');
@@ -188,7 +161,9 @@ function initWorker() {
             worker.onmessage = async e => {
                 const data = e.data;
                 if (data.type === 'INITIALIZED') {
-                    const initObj = { type: 'INIT', user: username, token: userToken, data: data.payload };
+                    // AUDIT FIX 1: Token removed from INIT frame (CRÍTICO — CVSS 9.8)
+                    // Token never leaves the client. Only the RSA-encrypted payload carries it.
+                    const initObj = { type: 'INIT', user: username, data: data.payload, attestKey: data.attestKey };
                     if (pendingPoWChallenge) {
                         pendingPoWMessage = initObj;
                         worker.postMessage({ type: 'SOLVE_POW', challenge: pendingPoWChallenge.challenge, difficulty: pendingPoWChallenge.difficulty });
@@ -198,29 +173,16 @@ function initWorker() {
                     }
                     document.querySelectorAll('.active').forEach(e => e.classList.remove('active'));
                     document.getElementById('chat-screen').classList.add('active');
-                    attestHmacKey = await deriveAttestVerifyKey(userToken, username);
-                    startAttestationLoop();
+                    // AUDIT FIX 3: Attestation is now server-orchestrated
                     resolve();
                 } else if (data.type === 'ATTEST_RESPONSE') {
-                    if (data.challenge !== expectedAttestChallenge) return;
-                    expectedAttestChallenge = null;
-                    if (!attestHmacKey) return;
-                    try {
-                        const sigBuf = base64ToBuffer(data.signature);
-                        const challengeBuf = new TextEncoder().encode(data.challenge);
-                        const valid = await crypto.subtle.verify('HMAC', attestHmacKey, sigBuf, challengeBuf);
-                        if (valid) { attestFailCount = 0; } else {
-                            attestFailCount++;
-                            if (attestFailCount >= ATTEST_MAX_FAILS) { if (ws) ws.close(1008); worker.terminate(); }
-                        }
-                    } catch (e) { attestFailCount++; }
-                } else if (data.type === 'ATTEST_FAIL') {
-                    attestFailCount++;
-                    if (attestFailCount >= ATTEST_MAX_FAILS) { if (ws) ws.close(1008); worker.terminate(); }
+                    // AUDIT FIX 3: Forward attestation response to server for verification
+                    sendStrictFrame(JSON.stringify({ type: 'ATTEST_RESPONSE', signature: data.signature, challenge: data.challenge }));
                 } else if (data.type === 'POW_SOLVED') {
                     if (pendingPoWMessage) sendMessageWithPoW(pendingPoWMessage, data.nonce);
                 } else if (data.type === 'ENCRYPT_VAULT_RESULT') {
-                    const obj = { type: 'ASYNC_MSG', user: username, token: userToken, payload: data.payload };
+                    // AUDIT FIX 1: Token removed from ASYNC_MSG frame (CRÍTICO — CVSS 9.8)
+                    const obj = { type: 'ASYNC_MSG', user: username, payload: data.payload };
                     if (pendingPoWChallenge) {
                         pendingPoWMessage = obj;
                         worker.postMessage({ type: 'SOLVE_POW', challenge: pendingPoWChallenge.challenge, difficulty: pendingPoWChallenge.difficulty });
@@ -250,7 +212,8 @@ function initWorker() {
                     }
                 } else if (data.type === 'ERROR') { reject(data.error); }
             };
-            worker.postMessage({ type: 'INIT', username: username, token: userToken, masterPublicPem: MASTER_PUBLIC_PEM });
+            // AUDIT FIX 2: sessionId passed to worker for high-entropy salt (ALTO — CVSS 7.4)
+            worker.postMessage({ type: 'INIT', username: username, token: userToken, sessionId: sessionId, masterPublicPem: MASTER_PUBLIC_PEM });
         } catch (e) {
             reject(e);
         }
@@ -290,8 +253,13 @@ async function connect() {
 
             if (frame.type === 'SESSION_EXPIRED') {
                 appendMessage('SESSION EXPIRED — Please reconnect.', false);
-                clearInterval(attestationInterval);
                 if (worker) worker.terminate();
+                return;
+            }
+
+            // AUDIT FIX 3: Server-initiated attestation challenge — forward to worker
+            if (frame.type === 'ATTEST_CHALLENGE') {
+                if (worker) worker.postMessage({ type: 'ATTEST_CHALLENGE', challenge: frame.challenge });
                 return;
             }
 
@@ -308,16 +276,16 @@ async function connect() {
                 if (record.type === 'SERVER_MSG') {
                     const encryptedData = record.payload.encData || record.payload;
                     worker.postMessage({ type: 'DECRYPT_MSG', payload: Array.from(base64ToBuffer(encryptedData)) });
-                } 
+                }
                 // Broadcast del Administrador
                 else if (record.user === 'ADMIN' && record.type === 'BROADCAST') {
                     const encryptedData = record.payload.encData || record.payload;
                     worker.postMessage({ type: 'DECRYPT_MSG', payload: Array.from(base64ToBuffer(encryptedData)) });
-                } 
+                }
                 // Metadatos de Archivo Entrante
                 else if (record.type === 'FILE_META') {
                     appendMessage(`INCOMING FILE: ${record.filename} (${record.totalChunks} chunks, ${record.fileSize} bytes)`, false);
-                } 
+                }
                 // Fragmento de Archivo Entrante
                 else if (record.type === 'FILE_CHUNK') {
                     worker.postMessage({ type: 'DECRYPT_FILE_CHUNK', payload: Array.from(base64ToBuffer(record.encData)), chunkIndex: record.chunkIndex, totalChunks: record.totalChunks, filename: record.filename });

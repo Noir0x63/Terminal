@@ -43,7 +43,7 @@ async function deriveAttestKey(token, salt) {
         { name: 'PBKDF2', salt: saltBuf, iterations: 100000, hash: 'SHA-256' },
         base,
         { name: 'HMAC', hash: 'SHA-256', length: 256 },
-        false,
+        true,  // AUDIT FIX 3: extractable=true — exported for server-side attestation verification
         ['sign']
     );
 }
@@ -90,19 +90,24 @@ self.onmessage = async (e) => {
     const d = e.data;
     try {
         if (d.type === 'INIT') {
-            localKey = await deriveKey(d.token, d.username);
-            attestHmacKey = await deriveAttestKey(d.token, d.username);
+            // AUDIT FIX 2: Salt changed from username (low entropy) to sessionId (32 bytes hex)
+            localKey = await deriveKey(d.token, d.sessionId);
+            attestHmacKey = await deriveAttestKey(d.token, d.sessionId);
 
             const pemContents = d.masterPublicPem.replace(/-----(BEGIN|END) PUBLIC KEY-----|\s/g, '');
             const binaryDer = base64ToBuffer(pemContents);
             adminPublicKey = await crypto.subtle.importKey('spki', binaryDer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
 
             const enc = new TextEncoder();
-            const initPayloadBuf = enc.encode(JSON.stringify({ token: d.token, username: d.username, ts: Date.now() }));
+            // AUDIT FIX 1+2: Include sessionId in RSA-encrypted payload for admin key derivation
+            const initPayloadBuf = enc.encode(JSON.stringify({ token: d.token, username: d.username, sessionId: d.sessionId, ts: Date.now() }));
             const encInit = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, adminPublicKey, initPayloadBuf);
-            
+
+            // AUDIT FIX 3: Export attestation key for server-side verification
+            const rawAttestKey = await crypto.subtle.exportKey('raw', attestHmacKey);
+
             initResolver();
-            self.postMessage({ type: 'INITIALIZED', payload: secureBufferToBase64(encInit) });
+            self.postMessage({ type: 'INITIALIZED', payload: secureBufferToBase64(encInit), attestKey: secureBufferToBase64(rawAttestKey) });
             return;
         }
 
