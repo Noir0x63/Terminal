@@ -69,7 +69,8 @@ ZTAP is designed for **Zero-Persistence**.
 *   **Memory Hygiene:** TypedArrays (`Uint8Array`) are used for plaintext processing and are sanitized using `.fill(0)` and CSPRNG noise injection immediately after use.
 *   **Automatic 24h Purge:** The server implements a mandatory cleanup cycle that wipes the message vault (RAM and Disk) every 24 hours, ensuring ephemerality.
 *   **Zero-Store Keys:** Session tokens and private keys never touch the server's disk; they reside only in the volatility of the browser's memory and the server's RAM during transport.
-*   **EXIF/IPTC Stripping:** JPEG files sent via the admin panel have APP1 (EXIF) and APP13 (IPTC) metadata stripped before encryption — preventing de-anonymization via GPS, device info, or software fingerprints.
+- **Volatile Identity Rotation**: Generación de una nueva dirección `.onion` en cada inicio del sistema (Onion Evasion) para evitar el rastreo a largo plazo.
+- **EXIF/IPTC Stripping**: JPEG files sent via the admin panel have APP1 (EXIF) and APP13 (IPTC) metadata stripped before encryption — preventing de-anonymization via GPS, device info, or software fingerprints.
 
 ### 5. Session Governance & Access Control
 *   **Session Expiry:** All sessions expire after 1 hour, requiring re-authentication.
@@ -137,8 +138,8 @@ A formal offensive cryptographic audit was performed under a **Zero Trust** ment
 ## 🚀 Deployment (Onion Service)
 The system is optimized for **Tor Hidden Services**:
 1.  **Launcher:** Automates the instantiation of the local Tor binary and the Node.js relay.
-2.  **Keygen:** Interactive passphrase-protected key generation (`node keygen.js`). Minimum 12-character passphrase required.
-3.  **Identity:** Generates a unique `.onion` address for anonymous access.
+2.  **Volatile Identity:** The launcher automatically wipes previous hidden service keys before starting Tor, forcing the generation of a **brand new .onion address** for every session.
+3.  **Keygen:** Interactive passphrase-protected key generation (`node keygen.js`). Minimum 12-character passphrase required.
 4.  **Governance:** Role-based access via RSA identity files (encrypted Master Key).
 
 ### Quick Start

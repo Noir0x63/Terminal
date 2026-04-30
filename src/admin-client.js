@@ -1,8 +1,8 @@
 let ws = null;
 let masterPrivateKey = null;
 let masterSignKey = null;
-let users = {}; // sessionId -> data
-let hashToId = {}; // sessionHash -> sessionId
+let users = {};
+let hashToId = {};
 let selectedSessionId = null;
 let messages = [];
 let sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
@@ -31,23 +31,17 @@ function hexToBuffer(hex) {
     return bytes;
 }
 
-// Decrypt master_private.enc using passphrase + PBKDF2 + AES-256-GCM (WebCrypto)
 async function decryptEncryptedKey(envelopeJson, passphrase) {
     const envelope = JSON.parse(envelopeJson);
     if (envelope.kdf !== 'pbkdf2') throw new Error('Unsupported KDF: ' + envelope.kdf);
-
     const enc = new TextEncoder();
     const salt = hexToBuffer(envelope.salt);
     const iv = hexToBuffer(envelope.iv);
     const authTag = hexToBuffer(envelope.authTag);
     const ciphertext = hexToBuffer(envelope.ciphertext);
-
-    // Reconstruct the ciphertext+authTag buffer (WebCrypto expects them concatenated)
     const encryptedWithTag = new Uint8Array(ciphertext.length + authTag.length);
     encryptedWithTag.set(ciphertext, 0);
     encryptedWithTag.set(authTag, ciphertext.length);
-
-    // Derive decryption key via PBKDF2
     const baseKey = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
     const aesKey = await crypto.subtle.deriveKey(
         { name: 'PBKDF2', salt: salt, iterations: envelope.kdfParams.iterations, hash: envelope.kdfParams.hash },
@@ -56,8 +50,6 @@ async function decryptEncryptedKey(envelopeJson, passphrase) {
         false,
         ['decrypt']
     );
-
-    // Decrypt
     const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, aesKey, encryptedWithTag);
     return new TextDecoder().decode(decrypted);
 }
@@ -68,8 +60,6 @@ document.getElementById('file-input').onchange = async (e) => {
     const f = e.target.files[0];
     if (!f) return;
     const text = await f.text();
-
-    // Detect if it's an encrypted .enc file or a legacy plaintext .pem
     if (f.name.endsWith('.enc') || text.trim().startsWith('{')) {
         pendingEncFile = text;
         document.getElementById('upload-status').textContent = 'ENCRYPTED KEY LOADED — ENTER PASSPHRASE';
@@ -77,7 +67,6 @@ document.getElementById('file-input').onchange = async (e) => {
         document.getElementById('passphrase-input').focus();
         document.getElementById('auth-btn').disabled = false;
     } else {
-        // Legacy .pem support
         try {
             await importKeys(text);
             document.getElementById('upload-status').textContent = 'KEY READY (PLAINTEXT)';
@@ -128,7 +117,6 @@ function sendStrictFrame(obj) {
 }
 
 document.getElementById('auth-btn').onclick = async () => {
-    // If we have an encrypted key file, decrypt it first
     if (pendingEncFile) {
         const passphrase = document.getElementById('passphrase-input').value;
         if (!passphrase) {
@@ -138,7 +126,6 @@ document.getElementById('auth-btn').onclick = async () => {
         try {
             document.getElementById('upload-status').textContent = 'DECRYPTING KEY (PBKDF2 600k)...';
             document.getElementById('auth-btn').disabled = true;
-            // Small delay to let the UI update before the heavy PBKDF2 computation
             await new Promise(r => setTimeout(r, 50));
             const pemString = await decryptEncryptedKey(pendingEncFile, passphrase);
             await importKeys(pemString);
@@ -169,7 +156,7 @@ function connectAdmin() {
             const len = view.getUint32(0, true);
             if (len === 0) return;
             const frame = JSON.parse(new TextDecoder().decode(new Uint8Array(e.data, 4, len)));
-            
+
             if (frame.type === 'AUTH_CHALLENGE') {
                 const sig = await crypto.subtle.sign({ name: 'RSA-PSS', saltLength: 32 }, masterSignKey, new TextEncoder().encode(frame.nonce));
                 sendStrictFrame({ type: 'ADMIN_AUTH', signature: bufferToBase64(sig) });
@@ -187,13 +174,11 @@ function connectAdmin() {
                         const existing = users[sessId];
                         if (existing && initData.ts <= existing.lastInitTs) return;
                         if (Math.abs(Date.now() - initData.ts) > 600000) return;
-
                         users[sessId] = {
                             username: initData.username,
-                            // AUDIT FIX 2: Salt changed from username to sessionId (high entropy)
                             symmetricKey: await deriveKey(initData.token, initData.sessionId || sessId),
                             receiveCounter: 0,
-                            sendCounter: 0, // Añadido para consistencia con el Worker
+                            sendCounter: 0,
                             lastInitTs: initData.ts
                         };
                         if (msg.sessionHash) hashToId[msg.sessionHash] = sessId;
@@ -205,14 +190,11 @@ function connectAdmin() {
                         const sessId = hashToId[sessHash] || sessHash;
                         const u = users[sessId];
                         if (!u || !u.symmetricKey) return;
-
                         const decBuf = await decryptAesGcm(base64ToBuffer(msg.payload), u.symmetricKey);
                         const decodedObj = JSON.parse(new TextDecoder().decode(decBuf));
                         decBuf.fill(0);
-
                         if (decodedObj.c <= u.receiveCounter) return;
                         u.receiveCounter = decodedObj.c;
-
                         let text = decodedObj.p;
                         try { text = JSON.parse(text).text || text; } catch (e) { }
                         messages.push({ from: sessId, text });
@@ -262,12 +244,9 @@ document.getElementById('send-btn').onclick = async () => {
     if (!u || !u.symmetricKey) return;
     input.value = '';
     messages.push({ from: 'ADMIN', to: selectedSessionId, text });
-    
-    // Incrementar contador para anti-replay y compatibilidad con el Worker
     u.sendCounter++;
     const payload = JSON.stringify({ user: 'ADMIN', text });
     const wrapped = JSON.stringify({ p: payload, c: u.sendCounter, t: Date.now() });
-    
     const encBuf = await encryptAesGcm(new TextEncoder().encode(wrapped), u.symmetricKey);
     sendStrictFrame({ type: 'SERVER_MSG', targetSession: selectedSessionId, payload: bufferToBase64(encBuf) });
     renderMessages();
@@ -293,52 +272,23 @@ document.getElementById('zip-upload').onchange = async (e) => {
     e.target.value = '';
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// AUDIT FIX 4: Strip EXIF (APP1) and IPTC (APP13) metadata from JPEG files
-// Prevents de-anonymization via GPS, device info, software fingerprints.
-// Sanitization occurs BEFORE E2EE encryption to respect the Blind Relay model.
-// ──────────────────────────────────────────────────────────────────────────
 function stripExifData(arrayBuffer) {
     const view = new DataView(arrayBuffer);
-    // Verify JPEG SOI marker (0xFFD8)
     if (arrayBuffer.byteLength < 4 || view.getUint8(0) !== 0xFF || view.getUint8(1) !== 0xD8) return arrayBuffer;
-
     const chunks = [];
-    chunks.push(new Uint8Array(arrayBuffer, 0, 2)); // SOI marker
-
+    chunks.push(new Uint8Array(arrayBuffer, 0, 2));
     let offset = 2;
     while (offset < arrayBuffer.byteLength - 1) {
         if (view.getUint8(offset) !== 0xFF) break;
         const marker = view.getUint8(offset + 1);
-
-        // SOS (Start of Scan) — rest is compressed image data, keep everything
-        if (marker === 0xDA) {
-            chunks.push(new Uint8Array(arrayBuffer, offset));
-            break;
-        }
-
-        // EOI (End of Image)
-        if (marker === 0xD9) {
-            chunks.push(new Uint8Array(arrayBuffer, offset, 2));
-            break;
-        }
-
-        // Segment length (big-endian, includes the 2 length bytes)
+        if (marker === 0xDA) { chunks.push(new Uint8Array(arrayBuffer, offset)); break; }
+        if (marker === 0xD9) { chunks.push(new Uint8Array(arrayBuffer, offset, 2)); break; }
         if (offset + 3 >= arrayBuffer.byteLength) break;
         const segLen = view.getUint16(offset + 2);
-
-        // Skip APP1 (0xE1 = EXIF/XMP) and APP13 (0xED = IPTC/Photoshop)
-        if (marker === 0xE1 || marker === 0xED) {
-            offset += 2 + segLen;
-            continue;
-        }
-
-        // Keep all other segments
+        if (marker === 0xE1 || marker === 0xED) { offset += 2 + segLen; continue; }
         chunks.push(new Uint8Array(arrayBuffer, offset, 2 + segLen));
         offset += 2 + segLen;
     }
-
-    // Concatenate clean chunks
     let totalLen = 0;
     for (const c of chunks) totalLen += c.byteLength;
     const result = new Uint8Array(totalLen);
@@ -350,12 +300,9 @@ function stripExifData(arrayBuffer) {
 async function sendFileToUser(file, targetSession, symmetricKey) {
     const CHUNK_SIZE = 2048;
     let arrayBuffer = await file.arrayBuffer();
-
-    // AUDIT FIX 4: Strip EXIF/IPTC metadata from JPEG files (anti-forensics)
     if (/\.(jpe?g)$/i.test(file.name)) {
         arrayBuffer = stripExifData(arrayBuffer);
     }
-
     const totalBytes = arrayBuffer.byteLength;
     const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE) || 1;
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');

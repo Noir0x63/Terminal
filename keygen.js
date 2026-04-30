@@ -14,11 +14,9 @@ function askPassphrase(prompt) {
 
 function encryptPrivateKey(pemString, passphrase) {
     const salt = crypto.randomBytes(32);
-    // PBKDF2 used here (not scrypt) because the admin-client must decrypt
-    // this in the browser, and WebCrypto only supports PBKDF2.
     const iterations = 600000;
     const key = crypto.pbkdf2Sync(passphrase, salt, iterations, 32, 'sha256');
-    const iv = crypto.randomBytes(12); // 12-byte IV for AES-GCM (standard)
+    const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(pemString, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
@@ -40,18 +38,18 @@ async function main() {
     console.log('╚══════════════════════════════════════════════════════════════╝');
     console.log('');
 
-    const passphrase = await askPassphrase('[KEYGEN] Ingresa la passphrase maestra para cifrar la clave privada: ');
+    const passphrase = await askPassphrase('[KEYGEN] Enter master passphrase to encrypt private key: ');
     if (!passphrase || passphrase.length < 12) {
-        console.error('[KEYGEN] ERROR: La passphrase debe tener al menos 12 caracteres.');
+        console.error('[KEYGEN] ERROR: Passphrase must be at least 12 characters.');
         process.exit(1);
     }
-    const confirm = await askPassphrase('[KEYGEN] Confirma la passphrase: ');
+    const confirm = await askPassphrase('[KEYGEN] Confirm passphrase: ');
     if (passphrase !== confirm) {
-        console.error('[KEYGEN] ERROR: Las passphrases no coinciden.');
+        console.error('[KEYGEN] ERROR: Passphrases do not match.');
         process.exit(1);
     }
 
-    console.log('[KEYGEN] Generando par de llaves RSA-4096...');
+    console.log('[KEYGEN] Generating RSA-4096 keypair...');
     const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
         modulusLength: 4096,
         publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -60,12 +58,10 @@ async function main() {
 
     fs.writeFileSync('master_public.pem', publicKey);
 
-    console.log('[KEYGEN] Cifrando clave privada con PBKDF2 (600k) + AES-256-GCM...');
+    console.log('[KEYGEN] Encrypting private key with PBKDF2 (600k) + AES-256-GCM...');
     const encryptedBlob = encryptPrivateKey(privateKey, passphrase);
     fs.writeFileSync('master_private.enc', encryptedBlob);
 
-    // Derive and store the admin HMAC secret from the passphrase deterministically
-    // This eliminates admin_token.txt entirely (CRÍTICO 2)
     const adminSalt = crypto.randomBytes(32);
     const adminSecret = crypto.scryptSync(passphrase, Buffer.concat([adminSalt, Buffer.from('ztap:admin:hmac')]), 32, { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
     const serverNonce = crypto.randomBytes(32);
@@ -78,13 +74,13 @@ async function main() {
     fs.writeFileSync('server_secrets.enc', JSON.stringify(secretsEnvelope, null, 2));
 
     console.log('');
-    console.log('[KEYGEN] ✓ master_public.pem         — Clave pública (distribución segura)');
-    console.log('[KEYGEN] ✓ master_private.enc         — Clave privada cifrada (AES-256-GCM + scrypt)');
-    console.log('[KEYGEN] ✓ server_secrets.enc         — Secretos del servidor derivados');
-    console.log('[KEYGEN] ✗ master_private.pem         — NO generada (nunca en disco plano)');
-    console.log('[KEYGEN] ✗ admin_token.txt            — ELIMINADO (derivado de passphrase)');
+    console.log('[KEYGEN] ✓ master_public.pem         — Public key (safe to distribute)');
+    console.log('[KEYGEN] ✓ master_private.enc         — Encrypted private key (AES-256-GCM + PBKDF2)');
+    console.log('[KEYGEN] ✓ server_secrets.enc         — Derived server secrets');
+    console.log('[KEYGEN] ✗ master_private.pem         — NOT generated (never stored in plaintext)');
+    console.log('[KEYGEN] ✗ admin_token.txt            — REMOVED (derived from passphrase)');
     console.log('');
-    console.log('[KEYGEN] ADVERTENCIA: Memoriza la passphrase. No hay recuperación sin ella.');
+    console.log('[KEYGEN] WARNING: Memorize your passphrase. There is no recovery without it.');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

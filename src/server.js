@@ -10,23 +10,19 @@ const cors = require('cors');
 
 let messageVault = [];
 let adminSocket = null;
-const activeSessionIds = new Set(); // Prevención de colisiones y suplantación de UI
+const activeSessionIds = new Set();
 
 const VAULT_FILE = path.join(__dirname, '../vault.json');
 const MAX_VAULT_SIZE = 5000;
 const CHALLENGE_TTL = 30000;
-const MSG_RATE_LIMIT = 50; 
-const BROADCAST_LIMIT_MS = 500; // 2 mensajes por segundo
+const MSG_RATE_LIMIT = 50;
+const BROADCAST_LIMIT_MS = 500;
 const HANDSHAKE_TIMEOUT = 20000;
 const MAX_CONN_PER_ID = 2;
 const MAX_TOTAL_CONN = 500;
-const SESSION_MAX_AGE = 3600000; // 1 hora — re-autenticación periódica
+const SESSION_MAX_AGE = 3600000;
 const MAX_INPUT_LENGTH = 4096;
 
-// ──────────────────────────────────────────────────────────────────────────
-// CRÍTICO 2 MITIGATION: Server secrets loaded from encrypted vault
-// No more admin_token.txt — HMAC secret is derived from passphrase at keygen
-// ──────────────────────────────────────────────────────────────────────────
 let HMAC_SECRET = null;
 let SERVER_NONCE = null;
 try {
@@ -34,13 +30,9 @@ try {
     HMAC_SECRET = secrets.adminSecret;
     SERVER_NONCE = secrets.serverNonce;
 } catch (e) {
-    console.error('[SERVER] ADVERTENCIA CRÍTICA: server_secrets.enc no encontrado. Ejecuta keygen.js primero.');
+    console.error('[SERVER] CRITICAL: server_secrets.enc not found. Run keygen.js first.');
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// ALTO 3 MITIGATION: serverNonce adds entropy to route HMAC
-// Even if HMAC_SECRET is leaked, routes cannot be predicted without serverNonce
-// ──────────────────────────────────────────────────────────────────────────
 function computeAdminPath(dayOffset = 0) {
     if (!HMAC_SECRET || !SERVER_NONCE) return null;
     const dayNonce = String(Math.floor(Date.now() / 86400000) + dayOffset);
@@ -67,10 +59,6 @@ function isValidAdminPath(token) {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// MEDIO 5 MITIGATION: Adaptive PoW difficulty
-// Base difficulty + surge multiplier under connection pressure
-// ──────────────────────────────────────────────────────────────────────────
 const POW_BASE_DIFFICULTY = 16;
 const POW_MAX_DIFFICULTY = 24;
 const powChallenges = new Map();
@@ -111,13 +99,7 @@ function verifyPoW(ws, nonce) {
     return false;
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// MEDIO 6 MITIGATION: Per-session ECDH for Perfect Forward Secrecy
-// Each client generates an ephemeral ECDH keypair during handshake.
-// The shared secret is used for the session — compromising the master RSA
-// key does NOT compromise past session traffic.
-// ──────────────────────────────────────────────────────────────────────────
-const sessionECDH = new Map(); // sessionId -> { ecdh, sharedKey }
+const sessionECDH = new Map();
 
 function generateECDHKeyPair() {
     const ecdh = crypto.createECDH('prime256v1');
@@ -125,16 +107,11 @@ function generateECDHKeyPair() {
     return ecdh;
 }
 
-const sessionSockets = new Map(); // sessionId -> Set(ws)
+const sessionSockets = new Map();
 const challenges = new Map();
-const activeSessions = new Map(); // sessionId -> { count, createdAt }
-const connRateLimit = new Map(); // ip -> { lastTime, count }
-const ipBanList = new Map(); // ip -> banExpiry (exponential backoff)
-
-// ──────────────────────────────────────────────────────────────────────────
-// BAJO 8 MITIGATION: Session governance
-// Sessions have max age, concurrent limits, and re-auth requirements
-// ──────────────────────────────────────────────────────────────────────────
+const activeSessions = new Map();
+const connRateLimit = new Map();
+const ipBanList = new Map();
 
 function isSessionExpired(sessionId) {
     const session = activeSessions.get(sessionId);
@@ -150,11 +127,6 @@ async function loadVault() {
 }
 loadVault();
 
-// ──────────────────────────────────────────────────────────────────────────
-// AUDIT FIX 5: Mutex-protected vault writes (prevents race condition / JSON corruption)
-// Multiple concurrent async writeFile calls could corrupt vault.json.
-// Promise chaining ensures serialized, atomic writes.
-// ──────────────────────────────────────────────────────────────────────────
 let vaultMutex = Promise.resolve();
 
 function saveVault() {
@@ -164,11 +136,10 @@ function saveVault() {
     return vaultMutex;
 }
 
-// Ciclo de Autolimpieza: Purga el vault cada 24 horas para garantizar efimeridad.
 setInterval(async () => {
     messageVault = [];
     await saveVault();
-    console.log('[SYSTEM] Purga automática de 24 horas completada.');
+    console.log('[SYSTEM] 24-hour automatic vault purge complete.');
     if (adminSocket && adminSocket.readyState === 1) {
         try {
             const bytes = Buffer.from(JSON.stringify({ type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: { type: 'BROADCAST', user: 'SYSTEM', payload: 'VAULT_PURGE_SUCCESSFUL' } } }), 'utf8');
@@ -181,7 +152,6 @@ setInterval(async () => {
     }
 }, 86400000);
 
-// Limpieza periódica de sesiones expiradas
 setInterval(() => {
     const now = Date.now();
     for (const [sessionId, session] of activeSessions) {
@@ -198,7 +168,6 @@ setInterval(() => {
             sessionECDH.delete(sessionId);
         }
     }
-    // Limpiar IP bans expirados
     for (const [ip, expiry] of ipBanList) {
         if (now > expiry) ipBanList.delete(ip);
     }
@@ -218,9 +187,6 @@ async function getMasterPublicKey() {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Input Sanitization (NEGATIVO audit point)
-// ──────────────────────────────────────────────────────────────────────────
 function sanitizeString(input, maxLen = 256) {
     if (typeof input !== 'string') return '';
     return input.slice(0, maxLen).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
@@ -236,16 +202,10 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
-// ──────────────────────────────────────────────────────────────────────────
-// HARDENING: Framework fingerprint suppression + ETag disable
-// ──────────────────────────────────────────────────────────────────────────
 app.disable('x-powered-by');
 app.set('etag', false);
 app.use(cors());
 
-// ──────────────────────────────────────────────────────────────────────────
-// Rate limiting granular (ALTA PRIORIDAD audit point 6)
-// ──────────────────────────────────────────────────────────────────────────
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false }));
 app.use((req, res, next) => {
     res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss: blob: data:; img-src 'self' data:; media-src 'self' data:; frame-ancestors 'none';");
@@ -265,9 +225,6 @@ app.get('/:token', (req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, '../public')));
 
-// ──────────────────────────────────────────────────────────────────────────
-// HARDENING: Global error handler — prevents path disclosure on 500 errors
-// ──────────────────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
     res.status(500).end();
 });
@@ -276,14 +233,12 @@ server.on('upgrade', (request, socket, head) => {
     const ip = request.socket.remoteAddress;
     const now = Date.now();
 
-    // Check IP ban
     if (ipBanList.has(ip) && now < ipBanList.get(ip)) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;
     }
 
-    // Rate limiting with exponential backoff tracking
     const rateEntry = connRateLimit.get(ip) || { lastTime: 0, count: 0, windowStart: now };
     if (now - rateEntry.windowStart > 60000) {
         rateEntry.count = 0;
@@ -293,8 +248,8 @@ server.on('upgrade', (request, socket, head) => {
     rateEntry.lastTime = now;
     connRateLimit.set(ip, rateEntry);
 
-    if (rateEntry.count > 30) { // Max 30 connections per minute per IP
-        const banDuration = Math.min(rateEntry.count * 10000, 600000); // Up to 10 min ban
+    if (rateEntry.count > 30) {
+        const banDuration = Math.min(rateEntry.count * 10000, 600000);
         ipBanList.set(ip, now + banDuration);
         socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
         socket.destroy();
@@ -347,31 +302,28 @@ wss.on('connection', (ws) => {
     ws.on('message', async (message) => {
         const now = Date.now();
 
-        // Rate limiting per socket
         if (now - ws.lastReset > 10000) { ws.msgCount = 0; ws.lastReset = now; }
         if (++ws.msgCount > MSG_RATE_LIMIT) return ws.close(1008);
         if (message.length !== 4096) return;
 
         try {
             const len = message.readUint32LE(0);
-            if (len === 0) return; // Chaff frame — ignore silently
-            if (len > 4092) return; // Invalid frame
+            if (len === 0) return;
+            if (len > 4092) return;
             const rawJson = message.subarray(4, 4 + len).toString('utf8');
             const data = JSON.parse(rawJson);
 
-            // Validate data.type exists and is a string
             if (!data || typeof data.type !== 'string') return;
 
             if (!ws.sessionId && data.type !== 'HANDSHAKE') return ws.close(1008);
 
-            // Session expiry check
             if (ws.sessionId && isSessionExpired(ws.sessionId)) {
                 sendStrictFrame(ws, { type: 'SESSION_EXPIRED' });
                 return ws.close(1008);
             }
 
             if (data.type === 'HANDSHAKE') {
-                if (ws.sessionId) return; // Already handshaken
+                if (ws.sessionId) return;
                 if (!validateSessionId(data.sessionId)) return ws.close(1008);
                 const sessionInfo = activeSessions.get(data.sessionId);
                 const count = sessionInfo ? sessionInfo.count : 0;
@@ -379,9 +331,6 @@ wss.on('connection', (ws) => {
                 clearTimeout(hTimeout);
                 ws.sessionId = data.sessionId;
 
-                // ──────────────────────────────────────────────────────────
-                // PFS: Generate server-side ECDH keypair for this session
-                // ──────────────────────────────────────────────────────────
                 if (!sessionECDH.has(data.sessionId)) {
                     const ecdh = generateECDHKeyPair();
                     sessionECDH.set(data.sessionId, { ecdh, sharedKey: null });
@@ -394,7 +343,6 @@ wss.on('connection', (ws) => {
                     createdAt: sessionInfo ? sessionInfo.createdAt : now
                 });
 
-                // Send server ECDH public key for PFS handshake
                 sendStrictFrame(ws, {
                     type: 'ECDH_EXCHANGE',
                     serverPublicKey: serverECDHPublic
@@ -402,9 +350,6 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // ──────────────────────────────────────────────────────────
-            // PFS: Client sends its ECDH public key
-            // ──────────────────────────────────────────────────────────
             if (data.type === 'ECDH_CLIENT_KEY') {
                 if (!data.clientPublicKey || typeof data.clientPublicKey !== 'string') return ws.close(1008);
                 if (data.clientPublicKey.length > 256) return ws.close(1008);
@@ -412,7 +357,6 @@ wss.on('connection', (ws) => {
                 if (!ecdhData) return ws.close(1008);
                 try {
                     const sharedSecret = ecdhData.ecdh.computeSecret(Buffer.from(data.clientPublicKey, 'hex'));
-                    // Derive session key using HKDF-like construction
                     ecdhData.sharedKey = crypto.createHash('sha256')
                         .update(sharedSecret)
                         .update(Buffer.from(ws.sessionId, 'hex'))
@@ -485,10 +429,6 @@ wss.on('connection', (ws) => {
                     sendStrictFrame(adminSocket, { type: 'NEW_MESSAGE', data: { timestamp: Date.now(), content: adminInit } });
                 }
 
-                // ──────────────────────────────────────────────────────────
-                // AUDIT FIX 3: Server-side attestation — store key and start
-                // periodic challenge loop. Client can no longer self-validate.
-                // ──────────────────────────────────────────────────────────
                 if (data.attestKey && typeof data.attestKey === 'string' && data.attestKey.length <= 256) {
                     ws.attestKey = Buffer.from(data.attestKey, 'base64');
                     ws.attestInterval = setInterval(() => {
@@ -511,10 +451,6 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // ──────────────────────────────────────────────────────────
-            // AUDIT FIX 3: Server verifies attestation HMAC response
-            // Uses timingSafeEqual to prevent timing side-channels
-            // ──────────────────────────────────────────────────────────
             if (data.type === 'ATTEST_RESPONSE') {
                 if (!ws.attestKey || !ws.attestChallenge) return;
                 if (!data.signature || typeof data.signature !== 'string') return ws.close(1008);
@@ -540,14 +476,12 @@ wss.on('connection', (ws) => {
 
             if (data.type === 'ASYNC_MSG' || data.type === 'SERVER_MSG' || data.type === 'FILE_META' || data.type === 'FILE_CHUNK' || data.type === 'BROADCAST') {
                 const isFromAdmin = (ws === adminSocket);
-                
-                // Rate limit: 2 mensajes por segundo para usuarios
-                if (!isFromAdmin && now - ws.lastBroadcast < BROADCAST_LIMIT_MS) return; 
+
+                if (!isFromAdmin && now - ws.lastBroadcast < BROADCAST_LIMIT_MS) return;
                 ws.lastBroadcast = now;
 
-                if (!isFromAdmin && (data.targetSession === 'ALL' || data.type === 'BROADCAST')) return; // Solo admin hace broadcast
+                if (!isFromAdmin && (data.targetSession === 'ALL' || data.type === 'BROADCAST')) return;
 
-                // Input sanitization for user-provided fields
                 if (data.user && typeof data.user === 'string') {
                     data.user = sanitizeString(data.user, 64);
                 }
@@ -567,7 +501,7 @@ wss.on('connection', (ws) => {
                 delete safeContent.powNonce;
                 safeContent.s = isFromAdmin ? 'ADMIN' : hashField(ws.sessionId);
                 if (safeContent.targetSession && safeContent.targetSession !== 'ALL') safeContent.ts = hashField(safeContent.targetSession);
-                
+
                 const record = { timestamp: Date.now(), content: safeContent };
                 if (needsVaultWrite) {
                     messageVault.push(record);
@@ -589,9 +523,7 @@ wss.on('connection', (ws) => {
                     if (sockets) for (let s of sockets) if (s.readyState === WebSocket.OPEN) sendStrictFrame(s, { type: 'NEW_MESSAGE', data: record });
                 }
             }
-        } catch (e) {
-            // Silently discard malformed frames — no information leakage
-        }
+        } catch (e) { }
     });
 
     ws.on('close', () => {
@@ -605,7 +537,7 @@ wss.on('connection', (ws) => {
             if (session) {
                 if (session.count <= 1) {
                     activeSessions.delete(ws.sessionId);
-                    sessionECDH.delete(ws.sessionId); // Clean up ECDH state
+                    sessionECDH.delete(ws.sessionId);
                 } else {
                     session.count--;
                 }

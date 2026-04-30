@@ -16,12 +16,11 @@ function clearLine() {
     process.stdout.write('\r\x1b[K');
 }
 
-function drawProgressBar(percent, status = "Bootstrapping Tor") {
+function drawProgressBar(percent, status = '') {
     const width = 30;
     const completed = Math.floor((percent / 100) * width);
     const remaining = width - completed;
     const bar = THEME.GREEN + '█'.repeat(completed) + THEME.GRAY + '░'.repeat(remaining) + THEME.RESET;
-    
     clearLine();
     process.stdout.write(`${THEME.BOLD}[${bar}] ${percent}%${THEME.RESET} ${THEME.GRAY}${status}${THEME.RESET}`);
 }
@@ -29,25 +28,23 @@ function drawProgressBar(percent, status = "Bootstrapping Tor") {
 console.clear();
 console.log(`${THEME.GREEN}${THEME.BOLD}====================================================${THEME.RESET}`);
 console.log(`${THEME.GREEN}${THEME.BOLD}             TERMINAL - ZTAP PROTOCOL              ${THEME.RESET}`);
-console.log(`${THEME.GREEN}${THEME.BOLD}              IRONCLAD v3.1 (HARDENED)              ${THEME.RESET}`);
+console.log(`${THEME.GREEN}${THEME.BOLD}              IRONCLAD v3.1 (HARDENED)             ${THEME.RESET}`);
 console.log(`${THEME.GREEN}${THEME.BOLD}====================================================${THEME.RESET}\n`);
 
-// 0. Verificar integridad de identidad (Keygen si falta algo)
 if (!fs.existsSync('master_public.pem') || !fs.existsSync('master_private.enc')) {
-    process.stdout.write(`${THEME.BOLD}[!]${THEME.RESET} ${THEME.WHITE}Identidad no detectada. Iniciando ZTAP KEYGEN...${THEME.RESET}\n\n`);
+    process.stdout.write(`${THEME.BOLD}[!]${THEME.RESET} ${THEME.WHITE}Identity not found. Starting ZTAP KEYGEN...${THEME.RESET}\n\n`);
     try {
         execSync('node keygen.js', { stdio: 'inherit' });
-        process.stdout.write(`\n${THEME.BOLD}[✓]${THEME.RESET} ${THEME.WHITE}Identidad generada correctamente.${THEME.RESET}\n\n`);
+        process.stdout.write(`\n${THEME.BOLD}[✓]${THEME.RESET} ${THEME.WHITE}Identity generated successfully.${THEME.RESET}\n\n`);
     } catch (e) {
-        process.stdout.write(`\n${THEME.BOLD}[ERROR]${THEME.RESET} Fallo al generar identidad.\n`);
+        process.stdout.write(`\n${THEME.BOLD}[ERROR]${THEME.RESET} Failed to generate identity.\n`);
         process.exit(1);
     }
 }
 
-// 1. Rotación de Identidad
 const torOnionDir = path.join(__dirname, 'Tor', 'onion_service');
 if (fs.existsSync(torOnionDir)) {
-    process.stdout.write(`${THEME.GRAY}> Rotando identidad para evasión...${THEME.RESET}\n`);
+    process.stdout.write(`${THEME.GRAY}> Rotating identity for evasion...${THEME.RESET}\n`);
     const files = fs.readdirSync(torOnionDir);
     for (const file of files) {
         try {
@@ -62,27 +59,23 @@ if (fs.existsSync(torOnionDir)) {
     fs.mkdirSync(torOnionDir, { recursive: true });
 }
 
-// 2. Build Silencioso
-process.stdout.write(`${THEME.GRAY}> Optimizando paquetes y rotando rutas admin...${THEME.RESET}\n`);
+process.stdout.write(`${THEME.GRAY}> Bundling assets and rotating admin routes...${THEME.RESET}\n`);
 try {
     execSync('node build.js', { stdio: 'pipe' });
 } catch (e) {
-    console.log(`\n${THEME.BOLD}[ERROR]${THEME.RESET} Fallo en el build.`);
+    console.log(`\n${THEME.BOLD}[ERROR]${THEME.RESET} Build failed.`);
     process.exit(1);
 }
 
-// 3. Obtener ruta admin (se lee del build más reciente)
-// Nota: Solo para mostrarla visualmente
 const secrets = JSON.parse(fs.readFileSync('server_secrets.enc', 'utf8'));
 const dayNonce = String(Math.floor(Date.now() / 86400000));
 const hourlyNonce = String(Math.floor(Date.now() / 3600000));
-const adminPath = crypto.createHmac('sha256', secrets.adminSecret)
+const adminPath = require('crypto').createHmac('sha256', secrets.adminSecret)
     .update(dayNonce + ':' + hourlyNonce + ':' + secrets.serverNonce)
     .digest('hex');
 
-console.log(`${THEME.CYAN}${THEME.BOLD}[ADMIN]${THEME.RESET} Ruta activa: /${adminPath}\n`);
+console.log(`${THEME.CYAN}${THEME.BOLD}[ADMIN]${THEME.RESET} Active route: /${adminPath}\n`);
 
-// 4. Iniciar procesos
 const server = spawn('node', ['src/server.js']);
 const tor = spawn(path.join(__dirname, 'Tor', 'tor.exe'), ['-f', path.join(__dirname, 'Tor', 'torrc.txt')]);
 
@@ -93,13 +86,11 @@ tor.stdout.on('data', (data) => {
     const match = text.match(/Bootstrapped (\d+)%/);
     if (match) {
         const percent = parseInt(match[1]);
-        let status = "Conectando a nodos...";
-        if (percent > 10) status = "Negociando circuitos...";
-        if (percent > 80) status = "Publicando Hidden Service...";
-        if (percent === 100) status = "Servicio Activo";
-        
+        let status = 'Connecting to nodes...';
+        if (percent > 10) status = 'Negotiating circuits...';
+        if (percent > 80) status = 'Publishing hidden service...';
+        if (percent === 100) status = 'Service active';
         drawProgressBar(percent, status);
-        
         if (percent === 100 && !torReady) {
             torReady = true;
             setTimeout(showFinalAddress, 2000);
@@ -118,7 +109,7 @@ function showFinalAddress() {
 }
 
 process.on('SIGINT', () => {
-    console.log(`\n${THEME.GRAY}> Cerrando búnker...${THEME.RESET}`);
+    console.log(`\n${THEME.GRAY}> Shutting down...${THEME.RESET}`);
     server.kill();
     tor.kill();
     process.exit();
