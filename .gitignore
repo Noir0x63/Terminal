@@ -1,15 +1,31 @@
+# --- ZTAP SYSTEM IGNORE ---
+
+# Dependencies
 node_modules/
 package-lock.json
-public/
-vault.json
-Tor/
-.DS_Store
-*.logic.pem
+
+# Keys & Secrets (CRITICAL)
+*.enc
+*.pem
+*.key
+admin_token.txt
 ACCESO_ADMIN.txt
 GOLD_HASH.txt
 
-# ── SECURITY: Secrets never committed ──
-admin_token.txt
-master_private.pem
-master_private.enc
-server_secrets.enc
+# Databases & Persistence
+vault.json
+*.db
+*.log
+
+# Generated folders
+public/
+Tor/
+
+# OS/IDE junk
+.DS_Store
+.vscode/
+.idea/
+
+# Testing & Scratch
+test_audit.js
+scratch/
