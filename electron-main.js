@@ -76,9 +76,13 @@ ipcMain.handle('submit-passphrase', async (event, passphrase) => {
 ipcMain.handle('open-dashboard', (event, url) => shell.openExternal(url));
 
 function bootSystem(dataDir) {
-    // 1. Start Server
-    const serverScript = getResourcePath('src/server.js');
-    serverProcess = spawn(process.execPath, [serverScript], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ZTAP_DATA_DIR: dataDir } });
+    // 1. Start Server (In-Process)
+    process.env.ZTAP_DATA_DIR = dataDir;
+    try {
+        require(path.join(__dirname, 'src/server.js'));
+    } catch (err) {
+        console.error('Failed to start server:', err);
+    }
 
     // 2. Identity Rotation (Anti-Forensic)
     const torOnionDir = path.join(dataDir, 'onion_service');
@@ -152,6 +156,5 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
     if (torProcess) torProcess.kill();
-    if (serverProcess) serverProcess.kill();
     app.quit();
 });
