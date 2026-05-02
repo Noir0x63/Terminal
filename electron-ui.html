@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>ZTAP Protocol</title>
+    <style>
+        :root {
+            --neon-green: #00ff41;
+            --dark-bg: #050505;
+            --panel-bg: #0d0d0d;
+            --text-muted: #666;
+        }
+        body {
+            background-color: var(--dark-bg);
+            color: var(--neon-green);
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            letter-spacing: 0.5px;
+        }
+        #logo {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 30px;
+            text-align: center;
+            white-space: pre;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.4);
+            line-height: 1.2;
+        }
+        .container {
+            background: var(--panel-bg);
+            width: 85%;
+            max-width: 650px;
+            padding: 35px 40px;
+            border: 1px solid #222;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.05);
+            box-sizing: border-box;
+            border-radius: 4px;
+        }
+        
+        /* Keygen UI */
+        #keygen-view { display: none; text-align: center; }
+        .prompt-text { margin-bottom: 25px; font-size: 15px; }
+        input[type="password"] {
+            background: #000;
+            color: var(--neon-green);
+            border: 1px solid var(--neon-green);
+            padding: 14px;
+            width: 100%;
+            margin-bottom: 25px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 16px;
+            outline: none;
+            text-align: center;
+            letter-spacing: 3px;
+            box-sizing: border-box;
+        }
+        input[type="password"]:focus { box-shadow: 0 0 12px rgba(0, 255, 65, 0.3); }
+        
+        button {
+            background: transparent;
+            color: var(--neon-green);
+            border: 1px solid var(--neon-green);
+            padding: 14px 20px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.2s ease;
+            width: 100%;
+            font-size: 14px;
+            letter-spacing: 1px;
+        }
+        button:hover {
+            background: var(--neon-green);
+            color: #000;
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+        }
+        
+        /* Boot UI */
+        #boot-view { display: block; text-align: left; }
+        #progress-container {
+            border: 1px solid #333;
+            width: 100%;
+            height: 10px;
+            margin-bottom: 15px;
+            background: #000;
+        }
+        #progress-bar {
+            background-color: var(--neon-green);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+            box-shadow: 0 0 8px var(--neon-green);
+        }
+        #status-text { color: var(--text-muted); font-size: 13px; text-transform: uppercase; }
+        
+        /* Ready UI */
+        #ready-view { display: none; text-align: center; }
+        .status-header {
+            color: var(--neon-green);
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 25px;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.4);
+        }
+        .address-box {
+            background: #000;
+            padding: 20px;
+            border: 1px solid #222;
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .address-label {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .onion-address {
+            font-size: 14px; /* Perfect size for 56 char v3 onions */
+            word-break: break-all;
+            color: #fff;
+            user-select: all;
+        }
+        .admin-route {
+            color: #0ff;
+            margin-top: 15px;
+            font-size: 13px;
+            opacity: 0.8;
+        }
+        .action-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 15px;
+            margin-top: 30px;
+        }
+        .action-row button {
+            width: 48%;
+            padding: 14px 10px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="logo">
+███████╗████████╗ █████╗ ██████╗ 
+╚══███╔╝╚══██╔══╝██╔══██╗██╔══██╗
+  ███╔╝    ██║   ███████║██████╔╝
+ ███╔╝     ██║   ██╔══██║██╔═══╝ 
+███████╗   ██║   ██║  ██║██║     
+╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝     
+<br><span style="font-size: 12px; color: #555; letter-spacing: 2px;">[ PROTOCOL IRONCLAD v3.1 ]</span>
+    </div>
+
+    <div class="container">
+        <!-- KEYGEN VIEW -->
+        <div id="keygen-view">
+            <div class="prompt-text">IDENTITY NOT FOUND. INITIALIZING SECURE ENCLAVE...</div>
+            <input type="password" id="passphrase-input" placeholder="Enter Master Passphrase (min 12)">
+            <button id="submit-key">Generate Identity (RSA-4096)</button>
+            <p id="keygen-error" style="color: #ff3333; display: none; margin-top: 15px; font-size: 12px;"></p>
+        </div>
+
+        <!-- BOOT VIEW -->
+        <div id="boot-view">
+            <div style="margin-bottom: 15px; font-weight: bold; font-size: 14px;">SYSTEM BOOT SEQUENCE</div>
+            <div id="progress-container"><div id="progress-bar"></div></div>
+            <div id="status-text">[0%] Initializing Tor Subsystem...</div>
+        </div>
+
+        <!-- READY VIEW -->
+        <div id="ready-view">
+            <div class="status-header">✔ SECURE RELAY ONLINE</div>
+            
+            <div class="address-box">
+                <div class="address-label">PUBLIC .ONION ADDRESS (FOR CLIENT)</div>
+                <div class="onion-address" id="onion-text">waiting.onion</div>
+            </div>
+
+            <div class="admin-route" id="admin-route-text">Admin Route: /route</div>
+            
+            <div class="action-row">
+                <button id="copy-onion">Copy .onion Link</button>
+                <button id="open-dash" style="background: var(--neon-green); color: #000;">Open Admin Panel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const bootView = document.getElementById('boot-view');
+        const keygenView = document.getElementById('keygen-view');
+        const readyView = document.getElementById('ready-view');
+
+        window.electronAPI.onNeedsKeygen(() => {
+            bootView.style.display = 'none';
+            keygenView.style.display = 'block';
+        });
+
+        document.getElementById('submit-key').onclick = async () => {
+            const pwd = document.getElementById('passphrase-input').value;
+            if (pwd.length < 12) {
+                document.getElementById('keygen-error').textContent = 'Error: Minimum 12 characters required.';
+                document.getElementById('keygen-error').style.display = 'block';
+                return;
+            }
+            document.getElementById('submit-key').textContent = 'GENERATING (PLEASE WAIT)...';
+            document.getElementById('submit-key').disabled = true;
+            
+            const success = await window.electronAPI.submitPassphrase(pwd);
+            if (success) {
+                keygenView.style.display = 'none';
+                bootView.style.display = 'block';
+            }
+        };
+
+        window.electronAPI.onTorStatus((data) => {
+            document.getElementById('progress-bar').style.width = data.percent + '%';
+            document.getElementById('status-text').textContent = '[' + data.percent + '%] ' + data.status;
+        });
+
+        window.electronAPI.onSystemReady((data) => {
+            bootView.style.display = 'none';
+            readyView.style.display = 'block';
+            document.getElementById('onion-text').textContent = data.onion;
+            document.getElementById('admin-route-text').textContent = 'Admin Route: /' + data.adminPath;
+            
+            document.getElementById('copy-onion').onclick = () => {
+                navigator.clipboard.writeText(data.onion);
+                const btn = document.getElementById('copy-onion');
+                btn.textContent = 'COPIED TO CLIPBOARD!';
+                btn.style.color = '#fff';
+                btn.style.borderColor = '#fff';
+                setTimeout(() => {
+                    btn.textContent = 'Copy .onion Link';
+                    btn.style.color = 'var(--neon-green)';
+                    btn.style.borderColor = 'var(--neon-green)';
+                }, 2000);
+            };
+
+            document.getElementById('open-dash').onclick = () => window.electronAPI.openDashboard(`http://localhost:3000/${data.adminPath}`);
+        });
+    </script>
+</body>
+</html>

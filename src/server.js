@@ -12,7 +12,8 @@ let messageVault = [];
 let adminSocket = null;
 const activeSessionIds = new Set();
 
-const VAULT_FILE = path.join(__dirname, '../vault.json');
+const dataDir = process.env.ZTAP_DATA_DIR || path.join(__dirname, '..');
+const VAULT_FILE = path.join(dataDir, 'vault.json');
 const MAX_VAULT_SIZE = 5000;
 const CHALLENGE_TTL = 30000;
 const MSG_RATE_LIMIT = 50;
@@ -26,7 +27,7 @@ const MAX_INPUT_LENGTH = 4096;
 let HMAC_SECRET = null;
 let SERVER_NONCE = null;
 try {
-    const secrets = JSON.parse(fsSync.readFileSync(path.join(__dirname, '../server_secrets.enc'), 'utf8'));
+    const secrets = JSON.parse(fsSync.readFileSync(path.join(dataDir, 'server_secrets.enc'), 'utf8'));
     HMAC_SECRET = secrets.adminSecret;
     SERVER_NONCE = secrets.serverNonce;
 } catch (e) {
@@ -181,7 +182,7 @@ function hashField(val) {
 
 async function getMasterPublicKey() {
     try {
-        return await fs.readFile(path.join(__dirname, '../master_public.pem'), 'utf8');
+        return await fs.readFile(path.join(dataDir, 'master_public.pem'), 'utf8');
     } catch (e) {
         try { return await fs.readFile('master_public.pem', 'utf8'); } catch { return null; }
     }

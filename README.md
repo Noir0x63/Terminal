@@ -135,33 +135,25 @@ A formal offensive cryptographic audit was performed under a **Zero Trust** ment
 
 ---
 
-## 🚀 Deployment (Onion Service)
-The system is optimized for **Tor Hidden Services**:
-1.  **Launcher:** Automates the instantiation of the local Tor binary and the Node.js relay.
-2.  **Volatile Identity:** The launcher automatically wipes previous hidden service keys before starting Tor, forcing the generation of a **brand new .onion address** for every session.
-3.  **Keygen:** Interactive passphrase-protected key generation (`node keygen.js`). Minimum 12-character passphrase required.
-4.  **Governance:** Role-based access via RSA identity files (encrypted Master Key).
+## 🚀 Deployment (Zero-Config Operator Setup)
+ZTAP v3.1 introduces a **Native Desktop Client** (Electron) designed to completely abstract the complexity of Tor, Node.js, and cryptographic key generation. This enables non-technical operators (journalists, activists) to deploy an IRONCLAD communication relay with zero command-line interaction.
 
-### Quick Start
-```bash
-# 1. Install dependencies
-npm install
+### 🖥️ Native Desktop Features
+1. **Automated Keygen:** Visual passphrase prompt for RSA-4096 key generation and encrypted-at-rest storage.
+2. **Embedded Tor:** Bundles the Tor binary and dynamically generates `torrc` configurations, bypassing port collisions and read-only permission errors.
+3. **Volatile Identity:** Automatically wipes previous hidden service keys and bootstraps a new `.onion` address upon every launch.
+4. **Local Dashboard Bridge:** Securely routes the operator to their local, encrypted admin dashboard (`localhost:3000/route`) while clients connect via the `.onion` network.
+5. **Cross-Platform Compilation:** Supports Windows `.exe` via NSIS and Linux `.AppImage` (the standard for **Tails OS**).
 
-# 2. Generate encrypted keys (interactive — prompts for passphrase)
-node keygen.js
+### Quick Start (Compiled Binary)
+1. Download the compiled release for your OS (`.exe` for Windows, `.AppImage` for Linux/Tails).
+2. Double-click to launch (no installation or terminal required).
+3. Follow the UI prompt to create your Master Passphrase (min 12 characters).
+4. Wait for the Tor subsystem to bootstrap (0% to 100%).
+5. Click **Copy .onion Link** and send it to your contact over a secure channel.
+6. Click **Open Admin Panel** to manage incoming messages locally in your browser.
 
-# 3. Launch (builds, purges legacy files, starts server + Tor)
-node launcher.js
-# Or on Windows: run.bat
-
-# 4. Access admin panel at the printed HMAC route
-#    Upload master_private.enc + enter passphrase
-
-# 5. Shutdown (Windows)
-# off.bat
-```
-
-> ⚠️ **Remember your passphrase.** There is no recovery mechanism without it.
+> ⚠️ **Remember your passphrase.** There is no "forgot password" mechanism. Without it, the master identity is cryptographically irretrievable.
 
 ---
 
