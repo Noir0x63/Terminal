@@ -20,6 +20,7 @@ vault.json
 # Generated folders
 public/
 Tor/
+dist/
 
 # OS/IDE junk
 .DS_Store
